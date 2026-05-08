@@ -61,6 +61,9 @@ sub startup ($self) {
     $self->minion->add_task(cleanup_events => 'Dragline::Job::CleanupEvents');
     $self->minion->add_task(schedule_crawls => 'Dragline::Job::ScheduleCrawls');
     $self->minion->add_task(forward_assess => 'Dragline::Job::ForwardAssess');
+    $self->minion->add_task(monitor => 'Dragline::Job::Monitor');
+    $self->minion->add_task(timeline_extract => 'Dragline::Job::TimelineExtract');
+    $self->minion->add_task(sanctions_screen => 'Dragline::Job::SanctionsScreen');
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

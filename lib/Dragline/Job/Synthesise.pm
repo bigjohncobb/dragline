@@ -8,6 +8,7 @@ use Mojo::Base 'Minion::Job', -signatures;
 use Dragline::LLM;
 use Dragline::Job::Steps;
 use Data::UUID;
+use JSON::PP qw(encode_json);
 
 my $_uuid = Data::UUID->new;
 
@@ -176,6 +177,25 @@ sub run {
             undef, $dossier_id,
         );
 
+        # ---- Write dossier version snapshot ----
+        my $sections = $dbh->selectall_arrayref(
+            q{SELECT section_number, section_name, content, model_used, token_count
+              FROM dossier_sections WHERE dossier_id = ? ORDER BY section_number},
+            { Slice => {} }, $dossier_id,
+        );
+        my $version_num = $dbh->selectrow_array(
+            q{SELECT COALESCE(MAX(version_number), 0) + 1 FROM dossier_versions WHERE dossier_id = ?},
+            undef, $dossier_id,
+        );
+        my $snap_id = $_uuid->create_str;
+        $dbh->do(
+            q{INSERT INTO dossier_versions
+                (id, dossier_id, target_id, version_number, snapshot_json, created_by)
+              VALUES (?, ?, ?, ?, ?, 'synthesise')},
+            undef, $snap_id, $dossier_id, $target_id, $version_num,
+            encode_json($sections),
+        );
+
         my $ce_id = $_uuid->create_str;
         $dbh->do(
             q{INSERT INTO change_events
@@ -188,8 +208,12 @@ sub run {
             [{ target_id => $target_id }],
             { priority => 3 }
         );
+        $self->app->minion->enqueue('timeline_extract',
+            [{ target_id => $target_id }],
+            { priority => 3 }
+        );
 
-        $log->info("Synthesise: dossier $dossier_id complete for target $target_id");
+        $log->info("Synthesise: dossier $dossier_id complete for target $target_id (version $version_num)");
         1;
     };
 

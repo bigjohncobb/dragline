@@ -504,6 +504,28 @@ CREATE INDEX IF NOT EXISTS idx_gap_signals_active        ON gap_signals(is_activ
 CREATE INDEX IF NOT EXISTS idx_forward_assessments_target_id ON forward_assessments(target_id);
 CREATE INDEX IF NOT EXISTS idx_forward_assessments_dossier_id ON forward_assessments(dossier_id);
 
+CREATE INDEX IF NOT EXISTS idx_monitor_runs_target_id    ON monitor_runs(target_id);
+CREATE INDEX IF NOT EXISTS idx_monitor_runs_status       ON monitor_runs(status);
+CREATE INDEX IF NOT EXISTS idx_monitor_deltas_run_id     ON monitor_deltas(monitor_run_id);
+CREATE INDEX IF NOT EXISTS idx_monitor_deltas_target_id  ON monitor_deltas(target_id);
+CREATE INDEX IF NOT EXISTS idx_monitor_deltas_severity   ON monitor_deltas(severity);
+
+CREATE INDEX IF NOT EXISTS idx_event_timeline_target_id  ON event_timeline(target_id);
+CREATE INDEX IF NOT EXISTS idx_event_timeline_date       ON event_timeline(event_date);
+CREATE INDEX IF NOT EXISTS idx_event_timeline_type       ON event_timeline(event_type);
+
+CREATE INDEX IF NOT EXISTS idx_dossier_versions_dossier  ON dossier_versions(dossier_id);
+CREATE INDEX IF NOT EXISTS idx_dossier_versions_target   ON dossier_versions(target_id);
+
+CREATE INDEX IF NOT EXISTS idx_sanctions_matches_target  ON sanctions_matches(target_id);
+CREATE INDEX IF NOT EXISTS idx_sanctions_matches_person  ON sanctions_matches(person_id);
+CREATE INDEX IF NOT EXISTS idx_sanctions_matches_status  ON sanctions_matches(status);
+
+CREATE INDEX IF NOT EXISTS idx_domain_whois_domain       ON domain_whois(domain);
+CREATE INDEX IF NOT EXISTS idx_domain_whois_target       ON domain_whois(target_id);
+CREATE INDEX IF NOT EXISTS idx_domain_dns_domain         ON domain_dns_records(domain);
+CREATE INDEX IF NOT EXISTS idx_domain_dns_target         ON domain_dns_records(target_id);
+
 -- ============================================================
 -- TRIGGERS — maintain updated_at automatically
 -- ============================================================
@@ -592,6 +614,13 @@ BEGIN
     UPDATE forward_assessments SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_sanctions_matches_updated_at
+AFTER UPDATE ON sanctions_matches
+FOR EACH ROW
+BEGIN
+    UPDATE sanctions_matches SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
 -- ============================================================
 -- SEED DATA
 -- ============================================================
@@ -624,4 +653,5 @@ INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('r_service_url',            'http://localhost:3003',  0, datetime('now')),
     ('crawl_content_threshold',  '500',                    0, datetime('now')),
     ('default_embed_model',      'text-embedding-v4',      0, datetime('now')),
-    ('app_version',              '0.1.0',                  0, datetime('now'));
+    ('opensanctions_api_key',    '',                       1, datetime('now')),
+    ('app_version',              '0.2.0',                  0, datetime('now'));
