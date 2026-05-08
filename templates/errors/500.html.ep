@@ -1,0 +1,7 @@
+% layout 'default';
+% title '500 Error — Dragline';
+<div class="error-page">
+  <h1>500 — Something went wrong</h1>
+  <p>An internal error occurred. Please try again, or contact your administrator.</p>
+  <a href="/" class="btn btn-secondary">Back to dashboard</a>
+</div>

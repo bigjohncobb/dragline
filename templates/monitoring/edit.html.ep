@@ -1,0 +1,62 @@
+% layout 'default';
+% my $t   = stash('target');
+% my $mon = stash('monitoring') // {};
+% title 'Monitoring — ' . $t->{canonical_name} . ' — Dragline';
+
+<div class="page-header">
+  <h1>Monitoring Settings</h1>
+  <span class="breadcrumb">for <a href="/targets/<%= $t->{id} %>"><%= $t->{canonical_name} %></a></span>
+</div>
+
+<form method="post" action="/targets/<%= $t->{id} %>/monitoring" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+
+  <table class="data-table monitoring-table">
+    <thead>
+      <tr><th>Source</th><th>Cadence</th><th>Last run</th><th>Next scheduled</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Forge Sync</td>
+        <td>
+          <select name="forge_sync_cadence" class="select-sm">
+            % for my $c (qw(hourly daily weekly disabled)) {
+            <option value="<%= $c %>"<%= ($mon->{forge_sync_cadence} // 'daily') eq $c ? ' selected' : '' %>><%= ucfirst $c %></option>
+            % }
+          </select>
+        </td>
+        <td><%= $mon->{last_forge_sync_at} ? substr($mon->{last_forge_sync_at}, 0, 16) : '—' %></td>
+        <td><%= $mon->{next_forge_sync_at} ? substr($mon->{next_forge_sync_at}, 0, 16) : '—' %></td>
+      </tr>
+      <tr>
+        <td>Crawl</td>
+        <td>
+          <select name="crawl_cadence" class="select-sm">
+            % for my $c (qw(daily weekly monthly disabled)) {
+            <option value="<%= $c %>"<%= ($mon->{crawl_cadence} // 'weekly') eq $c ? ' selected' : '' %>><%= ucfirst $c %></option>
+            % }
+          </select>
+        </td>
+        <td><%= $mon->{last_crawl_at} ? substr($mon->{last_crawl_at}, 0, 16) : '—' %></td>
+        <td><%= $mon->{next_crawl_at} ? substr($mon->{next_crawl_at}, 0, 16) : '—' %></td>
+      </tr>
+      <tr>
+        <td>Discover</td>
+        <td>
+          <select name="discover_cadence" class="select-sm">
+            % for my $c (qw(daily weekly monthly disabled)) {
+            <option value="<%= $c %>"<%= ($mon->{discover_cadence} // 'weekly') eq $c ? ' selected' : '' %>><%= ucfirst $c %></option>
+            % }
+          </select>
+        </td>
+        <td><%= $mon->{last_discover_at} ? substr($mon->{last_discover_at}, 0, 16) : '—' %></td>
+        <td><%= $mon->{next_discover_at} ? substr($mon->{next_discover_at}, 0, 16) : '—' %></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save settings</button>
+    <a href="/targets/<%= $t->{id} %>" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

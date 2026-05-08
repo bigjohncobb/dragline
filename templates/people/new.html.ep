@@ -1,0 +1,24 @@
+% layout 'default';
+% title 'New Person — Dragline';
+<div class="page-header">
+  <h1>New Person</h1>
+</div>
+<form method="post" action="/people" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="field">
+    <label for="canonical_name">Name <span class="required">*</span></label>
+    <input type="text" id="canonical_name" name="canonical_name" required autofocus>
+  </div>
+  <div class="field">
+    <label for="nationality">Nationality</label>
+    <input type="text" id="nationality" name="nationality">
+  </div>
+  <div class="field">
+    <label for="bio_summary">Bio summary</label>
+    <textarea id="bio_summary" name="bio_summary" rows="4"></textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Create person</button>
+    <a href="/people" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

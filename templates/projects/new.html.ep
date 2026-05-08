@@ -1,0 +1,20 @@
+% layout 'default';
+% title 'New Project — Dragline';
+<div class="page-header">
+  <h1>New Project</h1>
+</div>
+<form method="post" action="/projects" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="field">
+    <label for="name">Name <span class="required">*</span></label>
+    <input type="text" id="name" name="name" required autofocus>
+  </div>
+  <div class="field">
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="4"></textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Create project</button>
+    <a href="/projects" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

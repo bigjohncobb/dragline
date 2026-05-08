@@ -1,0 +1,76 @@
+# Dragline web application — systemd unit template
+#
+# Instance parameter %i is the instance identifier (e.g. "1", "prod").
+# Operator must create /etc/dragline/%i.env before starting.
+#
+# Enable and start an instance:
+#   systemctl enable --now dragline@1
+#
+# Zero-downtime reload (Hypnotoad hot-reload via SIGUSR2):
+#   systemctl reload dragline@1
+#
+# Adjust WorkingDirectory and the local/bin paths if Dragline is not at /opt/dragline.
+
+[Unit]
+Description=Dragline entity intelligence platform (instance %i)
+Documentation=https://github.com/your-org/dragline
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+
+# Operator creates this file — it is never committed to the repository.
+# Required variables: DRAGLINE_SECRET, DRAGLINE_DB, DRAGLINE_PORT
+EnvironmentFile=/etc/dragline/%i.env
+
+# Modules installed by cpanm --local-lib local are found here.
+Environment=PERL5LIB=/opt/dragline/local/lib/perl5
+
+WorkingDirectory=/opt/dragline
+
+# Hypnotoad writes its PID file to hypnotoad.pid in the working directory by default.
+PIDFile=/opt/dragline/hypnotoad.pid
+
+# ExecStart: launches Hypnotoad. Uses the local-lib binary installed by cpanm.
+ExecStart=/opt/dragline/local/bin/hypnotoad /opt/dragline/dragline.pl
+
+# ExecReload: running `hypnotoad app.pl` when the server is already running sends
+# SIGUSR2, which triggers a zero-downtime hot reload (new workers, old workers drain).
+# Do NOT use `-s` here — that is the stop command, not the reload command.
+ExecReload=/opt/dragline/local/bin/hypnotoad /opt/dragline/dragline.pl
+
+# ExecStop: `-s` sends SIGTERM for a graceful shutdown.
+ExecStop=/opt/dragline/local/bin/hypnotoad -s /opt/dragline/dragline.pl
+
+Restart=on-failure
+RestartSec=5s
+
+# --- Security hardening ---
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+PrivateDevices=yes
+
+# Writable paths the process legitimately needs.
+# Adjust if DRAGLINE_DB is stored elsewhere.
+ReadWritePaths=/opt/dragline
+ReadWritePaths=/tmp
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=200%
+
+# Run as a dedicated system user (operator creates this account).
+User=dragline
+Group=dragline
+
+[Install]
+WantedBy=multi-user.target

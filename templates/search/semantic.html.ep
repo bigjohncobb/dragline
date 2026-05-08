@@ -1,0 +1,48 @@
+% layout 'default';
+% title 'Semantic Search — Dragline';
+% my $results = stash('results') // [];
+% my $query = stash('query') // '';
+% my $target_id = stash('target_id') // '';
+% my $error = stash('error') // '';
+
+<div class="page-header">
+  <h1>Semantic Search</h1>
+</div>
+
+<form method="get" action="/search" class="search-form">
+  <input type="text" name="q" value="<%= $query %>" placeholder="Search by meaning, e.g. 'regulatory fines' or 'executive changes'…" class="input-search" style="flex:1">
+  <button type="submit" class="btn btn-primary">Search</button>
+</form>
+
+% if ($error) {
+<div class="flash flash-error"><%= $error %></div>
+% }
+
+% if (length($query) && !@$results) {
+<p class="empty-state">No results found for "<%= $query %>".</p>
+% } elsif (@$results) {
+<p class="results-meta"><%= scalar(@$results) %> results for "<%= $query %>"</p>
+
+<div class="search-results">
+% for my $r (@$results) {
+  <div class="search-result">
+    <div class="result-meta">
+      <a href="/targets/<%= $r->{target_id} %>"><%= $r->{target_name} %></a>
+      <span class="badge badge-source"><%= $r->{source_type} %></span>
+      % if ($r->{significance_tier}) {
+      <span class="badge">Tier <%= $r->{significance_tier} %></span>
+      % }
+      <span class="distance">Score: <%= sprintf('%.3f', 1 - $r->{distance}) %></span>
+    </div>
+    % if ($r->{source_url}) {
+    <div class="result-url"><a href="<%= $r->{source_url} %>" target="_blank"><%= $r->{source_title} // $r->{source_url} %></a></div>
+    % }
+    <pre class="result-snippet"><%= $r->{snippet} %></pre>
+    <div class="result-footer">
+      <span><%= $r->{word_count} // 0 %> words</span>
+      <span><%= $r->{created_at} %></span>
+    </div>
+  </div>
+% }
+</div>
+% }

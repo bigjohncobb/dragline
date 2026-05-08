@@ -1,0 +1,28 @@
+% layout 'default';
+% my $p = stash('person');
+% title 'Edit ' . $p->{canonical_name} . ' — Dragline';
+<div class="page-header">
+  <h1>Edit Person</h1>
+  <span class="breadcrumb"><a href="/people/<%= $p->{id} %>"><%= $p->{canonical_name} %></a></span>
+</div>
+<form method="post" action="/people/<%= $p->{id} %>" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="field">
+    <label for="canonical_name">Name <span class="required">*</span></label>
+    <input type="text" id="canonical_name" name="canonical_name"
+           value="<%= $p->{canonical_name} %>" required autofocus>
+  </div>
+  <div class="field">
+    <label for="nationality">Nationality</label>
+    <input type="text" id="nationality" name="nationality"
+           value="<%= $p->{nationality} // '' %>">
+  </div>
+  <div class="field">
+    <label for="bio_summary">Bio summary</label>
+    <textarea id="bio_summary" name="bio_summary" rows="4"><%= $p->{bio_summary} // '' %></textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save changes</button>
+    <a href="/people/<%= $p->{id} %>" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

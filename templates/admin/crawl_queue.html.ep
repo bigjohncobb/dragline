@@ -1,0 +1,64 @@
+% layout 'default';
+% title 'Crawl Queue — Admin — Dragline';
+% my $items = stash('items') // [];
+% my $counts = stash('counts') // [];
+% my $filter = stash('filter') // '';
+
+<div class="page-header">
+  <h1>Crawl Queue</h1>
+  <div class="page-actions">
+    <a href="/admin/health" class="btn btn-secondary btn-sm">Health</a>
+    <a href="/admin/settings" class="btn btn-secondary btn-sm">Settings</a>
+    <a href="/admin/jobs" class="btn btn-secondary btn-sm">Minion Jobs</a>
+  </div>
+</div>
+
+<div class="filter-bar">
+  % for my $c (@$counts) {
+  <a href="/admin/crawl-queue?status=<%= $c->{status} %>" class="badge <%= $filter eq $c->{status} ? 'badge-active' : '' %>"><%= $c->{status} %>: <%= $c->{count} %></a>
+  % }
+  <a href="/admin/crawl-queue" class="badge <%= $filter eq '' ? 'badge-active' : '' %>">All</a>
+</div>
+
+% if (!@$items) {
+<p class="empty-state">No crawl queue items.</p>
+% } else {
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Target</th>
+      <th>URL</th>
+      <th>Status</th>
+      <th>Attempts</th>
+      <th>Error</th>
+      <th>Queued</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  % for my $item (@$items) {
+    <tr>
+      <td><a href="/targets/<%= $item->{target_id} %>"><%= $item->{target_name} %></a></td>
+      <td class="td-label"><a href="<%= $item->{url} %>" target="_blank"><%= $item->{url} %></a></td>
+      <td><span class="badge badge-source"><%= $item->{status} %></span></td>
+      <td><%= $item->{attempts} %></td>
+      <td><span class="text-danger"><%= $item->{last_error} // '' %></span></td>
+      <td><%= $item->{queued_at} %></td>
+      <td class="td-action">
+        % if ($item->{status} eq 'failed') {
+        <form method="post" action="/admin/crawl-queue/<%= $item->{id} %>/retry" class="inline-form">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-secondary">Retry</button>
+        </form>
+        % }
+        <form method="post" action="/admin/crawl-queue/<%= $item->{id} %>/delete" class="inline-form"
+              onsubmit="return confirm('Delete this queue item?')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  % }
+  </tbody>
+</table>
+% }

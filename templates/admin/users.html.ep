@@ -1,0 +1,49 @@
+% layout 'default';
+% title 'Users — Admin — Dragline';
+% my $users   = stash('users') // [];
+% my $current = current_user;
+
+<div class="page-header">
+  <h1>Users</h1>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr><th>Username</th><th>Role</th><th>Status</th><th>Last login</th><th></th></tr>
+  </thead>
+  <tbody>
+  % for my $u (@$users) {
+    <tr>
+      <td><%= $u->{username} %><% if ($current && $current->{id} eq $u->{id}) { %> <span class="badge">you</span><% } %></td>
+      <td><span class="badge role-<%= $u->{role} %>"><%= $u->{role} %></span></td>
+      <td><span class="badge <%= $u->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $u->{active} ? 'active' : 'inactive' %></span></td>
+      <td><%= $u->{last_login_at} ? substr($u->{last_login_at}, 0, 16) : '—' %></td>
+      <td class="td-action">
+        % if (!$current || $current->{id} ne $u->{id}) {
+        <form method="post" action="/admin/users/<%= $u->{id} %>/delete" class="inline-form"
+              onsubmit="return confirm('Deactivate user <%= $u->{username} %>?')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-danger">Deactivate</button>
+        </form>
+        % }
+      </td>
+    </tr>
+  % }
+  </tbody>
+</table>
+
+<section class="detail-section">
+  <h2>Add User</h2>
+  <form method="post" action="/admin/users" class="edit-form edit-form-compact">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <div class="field-row">
+      <input type="text"     name="username" placeholder="Username" required class="input-sm" autocomplete="off">
+      <input type="password" name="password" placeholder="Password" required class="input-sm" autocomplete="new-password">
+      <select name="role" class="select-sm">
+        <option value="analyst">Analyst</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Create user</button>
+    </div>
+  </form>
+</section>

@@ -1,0 +1,42 @@
+% layout 'default';
+% my $project = stash('project');
+% title 'New Target in ' . $project->{name} . ' — Dragline';
+<div class="page-header">
+  <h1>New Target</h1>
+  <span class="breadcrumb">in <a href="/projects/<%= $project->{id} %>"><%= $project->{name} %></a></span>
+</div>
+<form method="post" action="/projects/<%= $project->{id} %>/targets" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="field">
+    <label for="canonical_name">Name <span class="required">*</span></label>
+    <input type="text" id="canonical_name" name="canonical_name" required autofocus>
+  </div>
+  <div class="field">
+    <label for="entity_type">Entity type</label>
+    <select id="entity_type" name="entity_type">
+      % for my $et (qw(company exchange regulator agency individual other)) {
+      <option value="<%= $et %>"><%= ucfirst $et %></option>
+      % }
+    </select>
+  </div>
+  <div class="field">
+    <label for="country">Country <span class="hint">(ISO alpha-2, e.g. GB)</span></label>
+    <input type="text" id="country" name="country" maxlength="2" class="input-sm">
+  </div>
+  <div class="field">
+    <label for="jurisdiction">Jurisdiction</label>
+    <input type="text" id="jurisdiction" name="jurisdiction">
+  </div>
+  <div class="field">
+    <label for="primary_domain">Primary domain <span class="hint">(e.g. example.com)</span></label>
+    <input type="text" id="primary_domain" name="primary_domain">
+  </div>
+  <div class="field">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="3"></textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Create target</button>
+    <a href="/projects/<%= $project->{id} %>" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

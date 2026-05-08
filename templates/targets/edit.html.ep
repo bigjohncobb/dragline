@@ -1,0 +1,54 @@
+% layout 'default';
+% my $t = stash('target');
+% title 'Edit ' . $t->{canonical_name} . ' — Dragline';
+<div class="page-header">
+  <h1>Edit Target</h1>
+  <span class="breadcrumb"><a href="/targets/<%= $t->{id} %>"><%= $t->{canonical_name} %></a></span>
+</div>
+<form method="post" action="/targets/<%= $t->{id} %>" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="field">
+    <label for="project_id">Project</label>
+    <select id="project_id" name="project_id">
+      % for my $proj (@{stash('projects') // []}) {
+      <option value="<%= $proj->{id} %>" <%= $t->{project_id} eq $proj->{id} ? 'selected' : '' %>><%= $proj->{name} %></option>
+      % }
+    </select>
+  </div>
+  <div class="field">
+    <label for="canonical_name">Name <span class="required">*</span></label>
+    <input type="text" id="canonical_name" name="canonical_name"
+           value="<%= $t->{canonical_name} %>" required autofocus>
+  </div>
+  <div class="field">
+    <label for="entity_type">Entity type</label>
+    <select id="entity_type" name="entity_type">
+      % for my $et (qw(company exchange regulator agency individual other)) {
+      <option value="<%= $et %>"<%= ($t->{entity_type} // '') eq $et ? ' selected' : '' %>><%= ucfirst $et %></option>
+      % }
+    </select>
+  </div>
+  <div class="field">
+    <label for="country">Country <span class="hint">(ISO alpha-2)</span></label>
+    <input type="text" id="country" name="country" maxlength="2" class="input-sm"
+           value="<%= $t->{country} // '' %>">
+  </div>
+  <div class="field">
+    <label for="jurisdiction">Jurisdiction</label>
+    <input type="text" id="jurisdiction" name="jurisdiction"
+           value="<%= $t->{jurisdiction} // '' %>">
+  </div>
+  <div class="field">
+    <label for="primary_domain">Primary domain</label>
+    <input type="text" id="primary_domain" name="primary_domain"
+           value="<%= $t->{primary_domain} // '' %>">
+  </div>
+  <div class="field">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="3"><%= $t->{notes} // '' %></textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save changes</button>
+    <a href="/targets/<%= $t->{id} %>" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>

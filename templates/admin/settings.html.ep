@@ -1,0 +1,108 @@
+% layout 'default';
+% title 'Settings — Admin — Dragline';
+% my $s = stash('settings') // {};
+
+<div class="page-header">
+  <h1>Settings</h1>
+</div>
+
+<form method="post" action="/admin/settings" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+
+  <fieldset class="settings-group">
+    <legend>AI Providers</legend>
+
+    <div class="field">
+      <label for="anthropic_api_key">Anthropic API key</label>
+      <input type="password" id="anthropic_api_key" name="anthropic_api_key"
+             value="<%= $s->{anthropic_api_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+      <span class="field-hint">Used for forward_assessment and high-quality synthesis.</span>
+    </div>
+
+    <div class="field">
+      <label for="alibaba_api_key">Alibaba (DashScope) API key</label>
+      <input type="password" id="alibaba_api_key" name="alibaba_api_key"
+             value="<%= $s->{alibaba_api_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+      <span class="field-hint">Used for Qwen LLM and text-embedding-v4 embeddings.</span>
+    </div>
+
+    <div class="field">
+      <label for="qwen_api_key">Qwen API key</label>
+      <input type="password" id="qwen_api_key" name="qwen_api_key"
+             value="<%= $s->{qwen_api_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+      <span class="field-hint">Alternative Qwen key (separate from Alibaba if needed).</span>
+    </div>
+
+    <div class="field">
+      <label for="ollama_base_url">Ollama base URL</label>
+      <input type="text" id="ollama_base_url" name="ollama_base_url"
+             value="<%= $s->{ollama_base_url}{value} // 'http://localhost:11434' %>">
+      <span class="field-hint">Used in airgap mode. Default: http://localhost:11434</span>
+    </div>
+
+    <div class="field">
+      <label for="default_embed_model">Default embed model</label>
+      <input type="text" id="default_embed_model" name="default_embed_model"
+             value="<%= $s->{default_embed_model}{value} // 'text-embedding-v4' %>">
+    </div>
+  </fieldset>
+
+  <fieldset class="settings-group">
+    <legend>Data Sources</legend>
+
+    <div class="field">
+      <label for="brave_api_key">Brave Search API key</label>
+      <input type="password" id="brave_api_key" name="brave_api_key"
+             value="<%= $s->{brave_api_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+      <span class="field-hint">Used for target discovery via Brave web search.</span>
+    </div>
+
+    <div class="field">
+      <label for="forge_api_url">Forge API URL</label>
+      <input type="text" id="forge_api_url" name="forge_api_url"
+             value="<%= $s->{forge_api_url}{value} // '' %>"
+             placeholder="https://forge.example.com/api">
+    </div>
+
+    <div class="field">
+      <label for="forge_api_key">Forge API key</label>
+      <input type="password" id="forge_api_key" name="forge_api_key"
+             value="<%= $s->{forge_api_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+    </div>
+  </fieldset>
+
+  <fieldset class="settings-group">
+    <legend>Services</legend>
+
+    <div class="field">
+      <label for="crawl_service_url">Crawl service URL</label>
+      <input type="text" id="crawl_service_url" name="crawl_service_url"
+             value="<%= $s->{crawl_service_url}{value} // 'http://localhost:3002' %>">
+      <span class="field-hint">External JS-rendering crawl service. Default: http://localhost:3002</span>
+    </div>
+
+    <div class="field">
+      <label for="r_service_url">R service URL</label>
+      <input type="text" id="r_service_url" name="r_service_url"
+             value="<%= $s->{r_service_url}{value} // 'http://localhost:3003' %>">
+      <span class="field-hint">Statistical scoring and gap detection service. Default: http://localhost:3003</span>
+    </div>
+
+    <div class="field">
+      <label for="crawl_content_threshold">Crawl content threshold <span class="hint">(words)</span></label>
+      <input type="number" id="crawl_content_threshold" name="crawl_content_threshold"
+             value="<%= $s->{crawl_content_threshold}{value} // '500' %>"
+             min="0" class="input-sm">
+      <span class="field-hint">Pages with fewer words than this are flagged as potentially JS-heavy.</span>
+    </div>
+  </fieldset>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save settings</button>
+  </div>
+</form>

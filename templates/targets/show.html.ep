@@ -1,0 +1,195 @@
+% layout 'default';
+% my $t   = stash('target');
+% my $mon = stash('monitoring') // {};
+% my $dos = stash('dossier');
+% title $t->{canonical_name} . ' — Dragline';
+% my $rel_time = sub {
+%   my ($ts) = @_; return '—' unless $ts;
+%   my ($y,$mo,$d,$h,$m,$s) = $ts =~ /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/;
+%   return $ts unless defined $y;
+%   require POSIX;
+%   my $epoch = POSIX::mktime($s+0,$m+0,$h+0,$d+0,$mo-1,$y-1900);
+%   my $diff = time() - $epoch;
+%   return 'just now' if $diff < 60;
+%   return int($diff/60).'m ago' if $diff < 3600;
+%   return int($diff/3600).'h ago' if $diff < 86400;
+%   return int($diff/86400).'d ago';
+% };
+
+<div class="page-header">
+  <div class="page-title-group">
+    <h1><%= $t->{canonical_name} %></h1>
+    <span class="badge"><%= $t->{entity_type} %></span>
+    % if ($t->{country}) {
+    <span class="badge badge-geo"><%= $t->{country} %></span>
+    % }
+    <span class="badge <%= $t->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $t->{active} ? 'active' : 'inactive' %></span>
+  </div>
+  <div class="page-actions">
+    <a href="/targets/<%= $t->{id} %>/content" class="btn btn-secondary btn-sm">Content</a>
+    <a href="/targets/<%= $t->{id} %>/dossier" class="btn btn-secondary btn-sm">Dossier</a>
+    <a href="/targets/<%= $t->{id} %>/edit" class="btn btn-secondary btn-sm">Edit</a>
+    <a href="/targets/<%= $t->{id} %>/monitoring" class="btn btn-secondary btn-sm">Monitoring</a>
+    % if ($t->{active}) {
+    <form method="post" action="/targets/<%= $t->{id} %>/deactivate" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-warning btn-sm">Deactivate</button>
+    </form>
+    % } else {
+    <form method="post" action="/targets/<%= $t->{id} %>/activate" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-success btn-sm">Activate</button>
+    </form>
+    % }
+    <form method="post" action="/targets/<%= $t->{id} %>/delete" class="inline-form"
+          onsubmit="return confirm('Delete target <%= $t->{canonical_name} %>? This cannot be undone.')">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="stats-row">
+  <div class="stat-item">
+    <span class="stat-label">Content</span>
+    <span class="stat-value"><%= stash('raw_count') // 0 %> items</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Dossier</span>
+    <span class="stat-value"><%= $dos ? $dos->{status} : 'none' %></span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Last crawl</span>
+    <span class="stat-value"><%= $rel_time->($mon->{last_crawl_at}) %></span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-label">Last forge sync</span>
+    <span class="stat-value"><%= $rel_time->($mon->{last_forge_sync_at}) %></span>
+  </div>
+</div>
+
+<div class="quick-actions">
+  <form method="post" action="/targets/<%= $t->{id} %>/content/crawl" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <input type="hidden" name="url" value="<%= $t->{primary_domain} ? 'https://' . $t->{primary_domain} . '/' : '' %>">
+    % if ($t->{primary_domain}) {
+    <button type="submit" class="btn btn-secondary btn-sm">Crawl Site</button>
+    % } else {
+    <a href="/targets/<%= $t->{id} %>/content" class="btn btn-secondary btn-sm">Crawl</a>
+    % }
+  </form>
+  <form method="post" action="/targets/<%= $t->{id} %>/content/forge-sync" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-secondary btn-sm">Forge Sync</button>
+  </form>
+  <form method="post" action="/targets/<%= $t->{id} %>/content/discover" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-secondary btn-sm">Discover</button>
+  </form>
+  <a href="/targets/<%= $t->{id} %>/dossier" class="btn btn-primary btn-sm">Dossier</a>
+</div>
+
+<% if ($t->{notes}) { %>
+<div class="notes-block"><%= $t->{notes} %></div>
+<% } %>
+
+<!-- Aliases -->
+<section class="detail-section">
+  <h2>Aliases</h2>
+  % my $aliases = stash('aliases') // [];
+  % if (@$aliases) {
+  <table class="data-table data-table-compact">
+    <tbody>
+    % for my $a (@$aliases) {
+      <tr>
+        <td><%= $a->{alias} %></td>
+        <td class="td-action">
+          <form method="post" action="/targets/<%= $t->{id} %>/aliases/<%= $a->{id} %>/delete" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % }
+  <form method="post" action="/targets/<%= $t->{id} %>/aliases" class="inline-add-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <input type="text" name="alias" placeholder="Add alias…" class="input-sm">
+    <button type="submit" class="btn btn-sm btn-secondary">Add</button>
+  </form>
+</section>
+
+<!-- Domains -->
+<section class="detail-section">
+  <h2>Domains</h2>
+  % my $domains = stash('domains') // [];
+  % if (@$domains) {
+  <table class="data-table data-table-compact">
+    <tbody>
+    % for my $d (@$domains) {
+      <tr>
+        <td><%= $d->{domain} %><% if ($d->{is_primary}) { %> <span class="badge badge-primary">primary</span><% } %></td>
+        <td class="td-action">
+          <form method="post" action="/targets/<%= $t->{id} %>/domains/<%= $d->{id} %>/delete" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % }
+  <form method="post" action="/targets/<%= $t->{id} %>/domains" class="inline-add-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <input type="text" name="domain" placeholder="Add domain (e.g. example.com)…" class="input-sm">
+    <label class="checkbox-label"><input type="checkbox" name="is_primary"> Primary</label>
+    <button type="submit" class="btn btn-sm btn-secondary">Add</button>
+  </form>
+</section>
+
+<!-- People -->
+<section class="detail-section">
+  <h2>People</h2>
+  % my $people = stash('people') // [];
+  % if (@$people) {
+  <table class="data-table data-table-compact">
+    <thead><tr><th>Name</th><th>Title</th></tr></thead>
+    <tbody>
+    % for my $p (@$people) {
+      <tr>
+        <td><a href="/people/<%= $p->{person_id} %>"><%= $p->{person_name} %></a></td>
+        <td><%= $p->{title} %></td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % } else {
+  <p class="empty-state-sm">No people associated.</p>
+  % }
+</section>
+
+<!-- Recent changes -->
+<section class="detail-section">
+  <h2>Recent Changes</h2>
+  % my $events = stash('events') // [];
+  % if (@$events) {
+  <table class="data-table data-table-compact">
+    <thead><tr><th>Type</th><th>Summary</th><th>Severity</th><th>When</th></tr></thead>
+    <tbody>
+    % for my $ev (@$events) {
+      <tr>
+        <td><span class="badge badge-type"><%= $ev->{event_type} =~ s/_/ /gr %></span></td>
+        <td><%= $ev->{summary} %></td>
+        <td><span class="badge severity-<%= $ev->{severity} %>"><%= $ev->{severity} %></span></td>
+        <td title="<%= $ev->{created_at} %>"><%= $rel_time->($ev->{created_at}) %></td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % } else {
+  <p class="empty-state-sm">No recent changes.</p>
+  % }
+</section>

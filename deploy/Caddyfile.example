@@ -1,0 +1,49 @@
+# Dragline — Caddy reverse proxy configuration example
+#
+# Copy this file to /etc/caddy/Caddyfile (or include it from your existing
+# Caddyfile) and replace "dragline.example.com" with your actual domain.
+#
+# Caddy will obtain and renew a TLS certificate from Let's Encrypt automatically
+# once your DNS points to this server.
+#
+# The DRAGLINE_PORT value must match what is set in /etc/dragline/<instance>.env.
+# Default port is 3001. Adjust the upstream address below if you change it.
+
+dragline.example.com {
+    # Terminate TLS here; Caddy manages the certificate automatically.
+    # No further TLS configuration is needed for a standard Let's Encrypt setup.
+
+    # Proxy all traffic to Dragline (Hypnotoad listens on localhost).
+    reverse_proxy localhost:3001 {
+        # Forward the real client IP so Dragline can enforce rate limits correctly.
+        # Dragline honours X-Forwarded-For only from loopback peers (127.0.0.1, ::1),
+        # so this is safe as long as Caddy is the only process reaching Hypnotoad.
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up Host {host}
+    }
+
+    # Recommended security headers (Dragline also sets its own CSP per request).
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+    }
+
+    # Optional: restrict access to the admin Minion UI by IP address.
+    # Uncomment and adjust the CIDR as needed.
+    # @admin_path {
+    #     path /admin/jobs/*
+    # }
+    # handle @admin_path {
+    #     @blocked not remote_ip 203.0.113.0/24
+    #     abort @blocked
+    #     reverse_proxy localhost:3001
+    # }
+
+    log {
+        output file /var/log/caddy/dragline.log
+        format json
+    }
+}

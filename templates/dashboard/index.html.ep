@@ -1,0 +1,89 @@
+% layout 'default';
+% my $uc = stash('unseen_count') // 0;
+% title $uc ? "Dragline — Change Feed ($uc unseen)" : 'Dragline — Change Feed';
+% my $rel_time = sub {
+%   my ($ts) = @_; return '' unless $ts;
+%   my ($y,$mo,$d,$h,$m,$s) = $ts =~ /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/;
+%   return $ts unless defined $y;
+%   require POSIX;
+%   my $epoch = POSIX::mktime($s+0,$m+0,$h+0,$d+0,$mo-1,$y-1900);
+%   my $diff = time() - $epoch;
+%   return 'just now' if $diff < 60;
+%   return int($diff/60).'m ago' if $diff < 3600;
+%   return int($diff/3600).'h ago' if $diff < 86400;
+%   return int($diff/86400).'d ago';
+% };
+
+<div class="page-header">
+  <h1>Change Feed</h1>
+  % if ($uc > 0) {
+  <button id="mark-all-btn" class="btn btn-secondary">Mark all seen (<%= $uc %>)</button>
+  % }
+</div>
+
+% if (!@{stash('events') // []}) {
+<p class="empty-state">No change events yet.</p>
+% } else {
+<div class="event-list">
+% for my $ev (@{stash('events')}) {
+  <div class="event-row<%= $ev->{seen} ? ' seen' : '' %>" id="event-<%= $ev->{id} %>">
+    <div class="event-meta">
+      <a class="event-target" href="/targets/<%= $ev->{target_id} %>"><%= $ev->{target_name} %></a>
+      <span class="badge badge-type"><%= $ev->{event_type} =~ s/_/ /gr %></span>
+      <span class="badge severity-<%= $ev->{severity} %>"><%= $ev->{severity} %></span>
+      <span class="event-time" title="<%= $ev->{created_at} %>"><%= $rel_time->($ev->{created_at}) %></span>
+    </div>
+    <div class="event-summary"><%= $ev->{summary} %></div>
+    % if ($ev->{source_url}) {
+    <div class="event-source"><a href="<%= $ev->{source_url} %>" target="_blank" rel="noopener noreferrer" class="ext-link"><%= $ev->{source_url} %></a></div>
+    % }
+    % unless ($ev->{seen}) {
+    <button class="btn btn-xs mark-seen-btn" data-id="<%= $ev->{id} %>">Mark seen</button>
+    % }
+  </div>
+% }
+</div>
+% }
+
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+  document.querySelectorAll('.mark-seen-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      var self = this;
+      fetch('/changes/' + id + '/seen', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: '_csrf_token=' + encodeURIComponent(csrf)
+      }).then(function(r) {
+        if (r.ok) {
+          var row = document.getElementById('event-' + id);
+          if (row) row.classList.add('seen');
+          self.style.display = 'none';
+        }
+      });
+    });
+  });
+
+  var markAllBtn = document.getElementById('mark-all-btn');
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', function() {
+      var self = this;
+      fetch('/changes/seen-all', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: '_csrf_token=' + encodeURIComponent(csrf)
+      }).then(function(r) {
+        if (r.ok) {
+          document.querySelectorAll('.event-row').forEach(function(row) { row.classList.add('seen'); });
+          document.querySelectorAll('.mark-seen-btn').forEach(function(b) { b.style.display = 'none'; });
+          self.textContent = 'All marked seen';
+          self.disabled = true;
+        }
+      });
+    });
+  }
+})();
+</script>

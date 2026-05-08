@@ -1,0 +1,40 @@
+% layout 'default';
+% title 'People — Dragline';
+<div class="page-header">
+  <h1>People</h1>
+  <a href="/people/new" class="btn btn-primary">New Person</a>
+</div>
+
+<form method="get" action="/people" class="search-form">
+  <input type="text" name="search" value="<%= stash('search') // '' %>" placeholder="Search people by name…" class="input-search">
+  <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+  % if (stash('search')) {
+  <a href="/people" class="btn btn-secondary btn-sm">Clear</a>
+  % }
+</form>
+
+% my $people = stash('people') // [];
+% if (!@$people) {
+<p class="empty-state">No people records yet. <a href="/people/new">Add one.</a></p>
+% } else {
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Nationality</th>
+      <th>Roles</th>
+      <th>Targets</th>
+    </tr>
+  </thead>
+  <tbody>
+  % for my $p (@$people) {
+    <tr>
+      <td><a href="/people/<%= $p->{id} %>"><%= $p->{canonical_name} %></a></td>
+      <td><%= $p->{nationality} // '—' %></td>
+      <td><%= $p->{role_count} // 0 %></td>
+      <td><%= $p->{target_count} // 0 %></td>
+    </tr>
+  % }
+  </tbody>
+</table>
+% }

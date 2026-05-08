@@ -1,0 +1,49 @@
+% layout 'default';
+% my $p = stash('project');
+% title $p->{name} . ' — Dragline';
+<div class="page-header">
+  <h1><%= $p->{name} %></h1>
+  <div class="page-actions">
+    <a href="/projects/<%= $p->{id} %>/edit" class="btn btn-secondary">Edit</a>
+    <form method="post" action="/projects/<%= $p->{id} %>/delete" class="inline-form"
+          onsubmit="return confirm('Delete project <%= $p->{name} %>?')">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+  </div>
+</div>
+
+% if ($p->{description}) {
+<p class="description"><%= $p->{description} %></p>
+% }
+<p class="stat"><strong><%= $p->{target_count} // 0 %></strong> targets</p>
+
+<div class="section-header">
+  <h2>Targets</h2>
+  <a href="/projects/<%= $p->{id} %>/targets/new" class="btn btn-primary btn-sm">Add Target</a>
+</div>
+
+% if (!@{stash('targets') // []}) {
+<p class="empty-state">No targets in this project yet.</p>
+% } else {
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Country</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+  % for my $t (@{stash('targets')}) {
+    <tr>
+      <td><a href="/targets/<%= $t->{id} %>"><%= $t->{canonical_name} %></a></td>
+      <td><span class="badge"><%= $t->{entity_type} %></span></td>
+      <td><%= $t->{country} // '—' %></td>
+      <td><span class="badge <%= $t->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $t->{active} ? 'active' : 'inactive' %></span></td>
+    </tr>
+  % }
+  </tbody>
+</table>
+% }

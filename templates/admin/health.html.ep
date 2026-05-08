@@ -1,0 +1,69 @@
+% layout 'default';
+% title 'Health — Admin — Dragline';
+% my $db_ok = stash('db_ok') // 0;
+% my $ms    = stash('minion_stats') // {};
+
+<div class="page-header">
+  <h1>System Health</h1>
+  <div class="page-actions">
+    <a href="/admin/settings" class="btn btn-secondary btn-sm">Settings</a>
+    <a href="/admin/crawl-queue" class="btn btn-secondary btn-sm">Crawl Queue</a>
+    <a href="/admin/costs"    class="btn btn-secondary btn-sm">Costs</a>
+    <a href="/admin/audit"    class="btn btn-secondary btn-sm">Audit log</a>
+    <a href="/admin/users"    class="btn btn-secondary btn-sm">Users</a>
+    <a href="/admin/api-keys" class="btn btn-secondary btn-sm">API Keys</a>
+    <a href="/admin/jobs"     class="btn btn-secondary btn-sm">Minion jobs</a>
+  </div>
+</div>
+
+<div class="health-grid">
+  <div class="health-card">
+    <h2>Database</h2>
+    <p class="health-status <%= $db_ok ? 'health-ok' : 'health-error' %>">
+      <%= $db_ok ? 'Connected' : 'Error' %>
+    </p>
+  </div>
+
+  <div class="health-card">
+    <h2>Minion Workers</h2>
+    <table class="data-table data-table-compact">
+      <tbody>
+        <tr><td>Active jobs</td>   <td><%= $ms->{active_jobs}   // 0 %></td></tr>
+        <tr><td>Inactive jobs</td> <td><%= $ms->{inactive_jobs} // 0 %></td></tr>
+        <tr><td>Failed jobs</td>   <td><strong class="<%= ($ms->{failed_jobs} // 0) > 0 ? 'text-danger' : '' %>"><%= $ms->{failed_jobs} // 0 %></strong></td></tr>
+        <tr><td>Finished jobs</td> <td><%= $ms->{finished_jobs} // 0 %></td></tr>
+        <tr><td>Delayed jobs</td>  <td><%= $ms->{delayed_jobs}  // 0 %></td></tr>
+        <tr><td>Workers (active)</td><td><%= $ms->{active_workers} // 0 %></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="health-card">
+  <h2>API Key Configuration</h2>
+  <table class="data-table data-table-compact">
+    <thead><tr><th>Setting</th><th>Status</th></tr></thead>
+    <tbody>
+    % my %labels = (
+    %   anthropic_api_key => 'Anthropic API key',
+    %   alibaba_api_key   => 'Alibaba (Qwen/DashScope) API key',
+    %   brave_api_key     => 'Brave Search API key',
+    %   forge_api_key     => 'Forge API key',
+    %   forge_api_url     => 'Forge API URL',
+    %   ollama_base_url   => 'Ollama base URL',
+    %   crawl_service_url => 'Crawl service URL',
+    %   r_service_url     => 'R service URL',
+    % );
+    % for my $key (sort keys %labels) {
+    %   my $val = $c->get_setting($key);
+    %   my $configured = defined $val && $val ne '';
+      <tr>
+        <td><%= $labels{$key} %></td>
+        <td><span class="badge <%= $configured ? 'badge-active' : 'badge-inactive' %>"><%= $configured ? 'configured' : 'missing' %></span></td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+</div>
+
+<p class="app-version-footer">App version: <%= $c->get_setting('app_version') // '0.1.0' %></p>

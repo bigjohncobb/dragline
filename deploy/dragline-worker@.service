@@ -1,0 +1,57 @@
+# Dragline Minion job worker — systemd unit template
+#
+# Instance parameter %i must match the corresponding dragline@%i instance so
+# both services share the same environment file and database.
+#
+# Enable and start:
+#   systemctl enable --now dragline-worker@1
+#
+# The worker runs 4 concurrent jobs (-j 4). Adjust for your hardware.
+# Adjust WorkingDirectory if Dragline is not installed at /opt/dragline.
+
+[Unit]
+Description=Dragline Minion job worker (instance %i)
+Documentation=https://github.com/your-org/dragline
+After=network.target dragline@%i.service
+Wants=network.target
+
+[Service]
+Type=simple
+
+# Same env file as the web process — they share DRAGLINE_DB and DRAGLINE_SECRET.
+EnvironmentFile=/etc/dragline/%i.env
+
+WorkingDirectory=/opt/dragline
+
+# Modules installed by cpanm --local-lib local are found here.
+Environment=PERL5LIB=/opt/dragline/local/lib/perl5
+
+ExecStart=/usr/bin/perl /opt/dragline/dragline.pl minion worker -j 4
+
+Restart=on-failure
+RestartSec=10s
+
+# --- Security hardening (identical to web unit) ---
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+PrivateDevices=yes
+
+ReadWritePaths=/opt/dragline
+ReadWritePaths=/tmp
+
+MemoryMax=2G
+CPUQuota=200%
+
+User=dragline
+Group=dragline
+
+[Install]
+WantedBy=multi-user.target

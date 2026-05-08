@@ -1,0 +1,33 @@
+% layout 'default';
+% title 'Projects — Dragline';
+<div class="page-header">
+  <h1>Projects</h1>
+  <a href="/projects/new" class="btn btn-primary">New Project</a>
+</div>
+
+% if (!@{stash('projects') // []}) {
+<p class="empty-state">No projects yet. <a href="/projects/new">Create one.</a></p>
+% } else {
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Description</th>
+      <th>Targets</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+  % for my $p (@{stash('projects')}) {
+    % my $desc = $p->{description} // '';
+    % my $desc_short = length($desc) > 60 ? substr($desc, 0, 60) . '…' : $desc;
+    <tr>
+      <td><a href="/projects/<%= $p->{id} %>"><%= $p->{name} %></a></td>
+      <td><%= $desc_short %></td>
+      <td><%= $p->{target_count} // 0 %></td>
+      <td><%= substr($p->{created_at} // '', 0, 10) %></td>
+    </tr>
+  % }
+  </tbody>
+</table>
+% }

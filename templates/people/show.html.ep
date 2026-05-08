@@ -1,0 +1,131 @@
+% layout 'default';
+% my $person      = stash('person');
+% my $roles       = stash('roles') // [];
+% my $connections = stash('connections') // [];
+% my $all_targets = stash('all_targets') // [];
+% my $all_people  = stash('all_people')  // [];
+% my $rel_types   = stash('relationship_types') // [];
+% title $person->{canonical_name} . ' — Dragline';
+
+<div class="page-header">
+  <h1><%= $person->{canonical_name} %></h1>
+  <div class="page-actions">
+    <a href="/people/<%= $person->{id} %>/edit" class="btn btn-secondary btn-sm">Edit</a>
+    <form method="post" action="/people/<%= $person->{id} %>/delete" class="inline-form"
+          onsubmit="return confirm('Delete <%= $person->{canonical_name} %>?')">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+    </form>
+  </div>
+</div>
+
+% if ($person->{nationality}) {
+<p class="person-meta">Nationality: <strong><%= $person->{nationality} %></strong></p>
+% }
+% if ($person->{bio_summary}) {
+<div class="bio-block"><%= $person->{bio_summary} %></div>
+% }
+
+<!-- Roles -->
+<section class="detail-section">
+  <h2>Roles</h2>
+  % if (@$roles) {
+  <table class="data-table">
+    <thead><tr><th>Organisation</th><th>Title</th><th>Period</th><th>Current</th><th></th></tr></thead>
+    <tbody>
+    % for my $r (@$roles) {
+      % my $period = ($r->{started_at} // '') . ($r->{ended_at} ? ' – ' . $r->{ended_at} : ($r->{started_at} ? ' – present' : ''));
+      <tr>
+        <td><a href="/targets/<%= $r->{target_id} %>"><%= $r->{target_name} %></a></td>
+        <td><%= $r->{title} %></td>
+        <td><%= $period || '—' %></td>
+        <td><% if ($r->{is_current}) { %><span class="badge badge-active">current</span><% } %></td>
+        <td class="td-action">
+          <form method="post" action="/people/<%= $person->{id} %>/roles/<%= $r->{id} %>/delete" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % } else {
+  <p class="empty-state-sm">No roles recorded.</p>
+  % }
+
+  <details class="add-form-collapsible">
+    <summary>Add role</summary>
+    <form method="post" action="/people/<%= $person->{id} %>/roles" class="edit-form edit-form-compact">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <div class="field-row">
+        <select name="target_id" required class="select-sm">
+          <option value="">Select organisation…</option>
+          % for my $tgt (@$all_targets) {
+          <option value="<%= $tgt->{id} %>"><%= $tgt->{canonical_name} %></option>
+          % }
+        </select>
+        <input type="text" name="title" placeholder="Title / role" required class="input-sm">
+        <input type="date" name="started_at" class="input-sm" title="Started">
+        <label class="checkbox-label"><input type="checkbox" name="is_current" value="1" checked> Current</label>
+        <button type="submit" class="btn btn-sm btn-primary">Add</button>
+      </div>
+    </form>
+  </details>
+</section>
+
+<!-- Connections -->
+<section class="detail-section">
+  <h2>Connections</h2>
+  % if (@$connections) {
+  <table class="data-table">
+    <thead><tr><th>Person</th><th>Relationship</th><th>Notes</th><th>Source</th><th></th></tr></thead>
+    <tbody>
+    % for my $conn (@$connections) {
+      <tr>
+        <td><a href="/people/<%= $conn->{other_id} %>"><%= $conn->{other_name} %></a></td>
+        <td><span class="badge"><%= $conn->{relationship_type} =~ s/_/ /gr %></span></td>
+        <td><%= $conn->{notes} // '—' %></td>
+        <td>
+          % if ($conn->{source_url}) {
+          <a href="<%= $conn->{source_url} %>" target="_blank" rel="noopener noreferrer" class="ext-link">link</a>
+          % } else { %> — <% }
+        </td>
+        <td class="td-action">
+          <form method="post" action="/people/<%= $person->{id} %>/connections/<%= $conn->{id} %>/delete" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % } else {
+  <p class="empty-state-sm">No connections recorded.</p>
+  % }
+
+  % if (@$all_people) {
+  <details class="add-form-collapsible">
+    <summary>Add connection</summary>
+    <form method="post" action="/people/<%= $person->{id} %>/connections" class="edit-form edit-form-compact">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <div class="field-row">
+        <select name="other_person_id" required class="select-sm">
+          <option value="">Select person…</option>
+          % for my $op (@$all_people) {
+          <option value="<%= $op->{id} %>"><%= $op->{canonical_name} %></option>
+          % }
+        </select>
+        <select name="relationship_type" required class="select-sm">
+          % for my $rt (@$rel_types) {
+          <option value="<%= $rt %>"><%= $rt =~ s/_/ /gr %></option>
+          % }
+        </select>
+        <input type="text" name="notes" placeholder="Notes (optional)" class="input-sm">
+        <button type="submit" class="btn btn-sm btn-primary">Add</button>
+      </div>
+    </form>
+  </details>
+  % }
+</section>

@@ -1,0 +1,62 @@
+% layout 'default';
+% title 'Audit Log — Admin — Dragline';
+% my $entries     = stash('entries') // [];
+% my $page        = stash('page')    // 1;
+% my $total       = stash('total')   // 0;
+% my $per_page    = stash('per_page')// 50;
+% my $pages       = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 1;
+% my $f_action    = stash('filter_action')      // '';
+% my $f_entity    = stash('filter_entity_type') // '';
+
+<div class="page-header">
+  <h1>Audit Log</h1>
+</div>
+
+<form method="get" action="/admin/audit" class="filter-form">
+  <input type="text" name="action" value="<%= $f_action %>" placeholder="Filter by action…" class="input-sm">
+  <select name="entity_type" class="select-sm">
+    <option value="">All entity types</option>
+    % for my $et (qw(user project target person api_key settings)) {
+    <option value="<%= $et %>"<%= $f_entity eq $et ? ' selected' : '' %>><%= $et %></option>
+    % }
+  </select>
+  <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+  % if ($f_action || $f_entity) {
+  <a href="/admin/audit" class="btn btn-secondary btn-sm">Clear</a>
+  % }
+</form>
+
+<p class="result-count"><%= $total %> entries</p>
+
+% if (!@$entries) {
+<p class="empty-state">No audit log entries match your filter.</p>
+% } else {
+<table class="data-table">
+  <thead>
+    <tr><th>Time</th><th>User</th><th>Action</th><th>Entity type</th><th>Entity ID</th></tr>
+  </thead>
+  <tbody>
+  % for my $e (@$entries) {
+    <tr>
+      <td class="td-mono" title="<%= $e->{created_at} %>"><%= substr($e->{created_at} // '', 0, 16) %></td>
+      <td><%= $e->{username} // '(system)' %></td>
+      <td><%= $e->{action} %></td>
+      <td><%= $e->{entity_type} // '—' %></td>
+      <td class="td-mono td-truncate" title="<%= $e->{entity_id} // '' %>"><%= $e->{entity_id} ? substr($e->{entity_id}, 0, 12) . '…' : '—' %></td>
+    </tr>
+  % }
+  </tbody>
+</table>
+
+% if ($pages > 1) {
+<div class="pagination">
+  % if ($page > 1) {
+  <a href="?page=<%= $page-1 %>&action=<%= url_escape($f_action) %>&entity_type=<%= url_escape($f_entity) %>" class="btn btn-xs btn-secondary">← Prev</a>
+  % }
+  <span class="page-info">Page <%= $page %> of <%= $pages %></span>
+  % if ($page < $pages) {
+  <a href="?page=<%= $page+1 %>&action=<%= url_escape($f_action) %>&entity_type=<%= url_escape($f_entity) %>" class="btn btn-xs btn-secondary">Next →</a>
+  % }
+</div>
+% }
+% }

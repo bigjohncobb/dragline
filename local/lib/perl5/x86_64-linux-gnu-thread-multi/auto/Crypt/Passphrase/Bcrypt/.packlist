@@ -1,0 +1,8 @@
+/opt/dragline/local/lib/perl5/Crypt/Passphrase/Bcrypt.pm
+/opt/dragline/local/lib/perl5/Crypt/Passphrase/Bcrypt/Encrypted.pm
+/opt/dragline/local/man/man3/Crypt::Passphrase::Bcrypt.3pm
+/opt/dragline/local/man/man3/Crypt::Passphrase::Bcrypt::Encrypted.3pm
+/usr/local/man/man3/Crypt::Passphrase::Bcrypt.3pm
+/usr/local/man/man3/Crypt::Passphrase::Bcrypt::Encrypted.3pm
+/usr/local/share/perl/5.38.2/Crypt/Passphrase/Bcrypt.pm
+/usr/local/share/perl/5.38.2/Crypt/Passphrase/Bcrypt/Encrypted.pm

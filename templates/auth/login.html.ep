@@ -1,0 +1,24 @@
+% layout 'default';
+% title 'Dragline — Sign In';
+<div class="login-wrap">
+  <div class="login-card">
+    <h1 class="login-title">Dragline</h1>
+    % if (my $err = stash('error') // flash('error')) {
+    <div class="flash flash-error"><%= $err %></div>
+    % }
+    <form method="post" action="/login" class="login-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username"
+               required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password"
+               autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+  </div>
+</div>

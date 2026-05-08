@@ -1,0 +1,130 @@
+% layout 'default';
+% my $t = stash('target');
+% title 'Content — ' . $t->{canonical_name} . ' — Dragline';
+% my $page     = stash('page')     // 1;
+% my $total    = stash('total')    // 0;
+% my $per_page = stash('per_page') // 20;
+% my $pages    = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 1;
+% my $rel_time = sub {
+%   my ($ts) = @_; return '—' unless $ts;
+%   my ($y,$mo,$d,$h,$m,$s) = $ts =~ /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/;
+%   return $ts unless defined $y;
+%   require POSIX;
+%   my $epoch = POSIX::mktime($s+0,$m+0,$h+0,$d+0,$mo-1,$y-1900);
+%   my $diff = time() - $epoch;
+%   return 'just now' if $diff < 60;
+%   return int($diff/60).'m ago' if $diff < 3600;
+%   return int($diff/3600).'h ago' if $diff < 86400;
+%   return int($diff/86400).'d ago';
+% };
+
+<div class="page-header">
+  <h1><a href="/targets/<%= $t->{id} %>"><%= $t->{canonical_name} %></a> — Content</h1>
+  <span class="stat-count"><%= $total %> items</span>
+</div>
+
+<div class="content-actions">
+  <form method="post" action="/targets/<%= $t->{id} %>/content/crawl" class="action-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <input type="url" name="url" placeholder="https://example.com/page" class="input-url" required>
+    <button type="submit" class="btn btn-secondary">Queue URL for crawl</button>
+  </form>
+
+  <form method="get" action="/targets/<%= $t->{id} %>/content" class="filter-form">
+    <select name="source_type" class="select-sm">
+      <option value="">All types</option>
+      <option value="forge" <%= stash('source_type') eq 'forge' ? 'selected' : '' %>>Forge</option>
+      <option value="crawl_static" <%= stash('source_type') eq 'crawl_static' ? 'selected' : '' %>>Crawl</option>
+      <option value="crawl_js" <%= stash('source_type') eq 'crawl_js' ? 'selected' : '' %>>Crawl JS</option>
+      <option value="pdf" <%= stash('source_type') eq 'pdf' ? 'selected' : '' %>>PDF</option>
+      <option value="upload" <%= stash('source_type') eq 'upload' ? 'selected' : '' %>>Upload</option>
+    </select>
+    <input type="date" name="date_from" value="<%= stash('date_from') %>" class="input-sm" placeholder="From">
+    <input type="date" name="date_to" value="<%= stash('date_to') %>" class="input-sm" placeholder="To">
+    <input type="number" name="min_tier" value="<%= stash('min_tier') %>" class="input-sm" placeholder="Min tier" min="1" max="163">
+    <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+    % if (stash('source_type') || stash('date_from') || stash('date_to') || stash('min_tier')) {
+    <a href="/targets/<%= $t->{id} %>/content" class="btn btn-secondary btn-sm">Clear</a>
+    % }
+  </form>
+
+  <form method="post" action="/targets/<%= $t->{id} %>/content/upload"
+        class="action-form" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <input type="file" name="file" accept=".pdf,.txt">
+    <button type="submit" class="btn btn-secondary">Upload file</button>
+  </form>
+
+  <form method="post" action="/targets/<%= $t->{id} %>/content/discover" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-secondary">Discover</button>
+  </form>
+
+  <form method="post" action="/targets/<%= $t->{id} %>/content/forge-sync" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-secondary">Forge Sync</button>
+  </form>
+</div>
+
+% my $content = stash('content') // [];
+% if (!@$content) {
+<p class="empty-state">No content yet. Queue a URL to crawl or upload a file.</p>
+% } else {
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Title / URL</th>
+      <th>Words</th>
+      <th>Tier</th>
+      <th>Lang</th>
+      <th>Added</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  % for my $rc (@$content) {
+    % my $label = $rc->{source_title} // $rc->{source_url} // '';
+    % $label = length($label) > 70 ? substr($label, 0, 70) . '…' : $label;
+    <tr>
+      <td><span class="badge badge-source"><%= $rc->{source_type} %></span></td>
+      <td class="td-label">
+        % if ($rc->{source_url}) {
+        <a href="<%= $rc->{source_url} %>" target="_blank" rel="noopener noreferrer" title="<%= $rc->{source_url} %>"><%= $label || $rc->{source_url} %></a>
+        % } else {
+        <%= $label || '(no title)' %>
+        % }
+      </td>
+      <td><%= $rc->{word_count} // '—' %></td>
+      <td><%= $rc->{significance_tier} // '—' %></td>
+      <td><%= $rc->{language_code} // '—' %></td>
+      <td title="<%= $rc->{created_at} %>"><%= $rel_time->($rc->{created_at}) %></td>
+      <td class="td-action">
+        <a href="/targets/<%= $t->{id} %>/content/<%= $rc->{id} %>/edit" class="btn btn-xs btn-secondary">Edit</a>
+        <form method="post" action="/targets/<%= $t->{id} %>/content/<%= $rc->{id} %>/reprocess" class="inline-form">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-secondary">Reprocess</button>
+        </form>
+        <form method="post" action="/targets/<%= $t->{id} %>/content/<%= $rc->{id} %>/delete" class="inline-form"
+              onsubmit="return confirm('Delete this content item?')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  % }
+  </tbody>
+</table>
+
+% if ($pages > 1) {
+<div class="pagination">
+  % if ($page > 1) {
+  <a href="?page=<%= $page - 1 %>" class="btn btn-xs btn-secondary">← Prev</a>
+  % }
+  <span class="page-info">Page <%= $page %> of <%= $pages %></span>
+  % if ($page < $pages) {
+  <a href="?page=<%= $page + 1 %>" class="btn btn-xs btn-secondary">Next →</a>
+  % }
+</div>
+% }
+% }

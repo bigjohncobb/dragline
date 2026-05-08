@@ -1,0 +1,53 @@
+% layout 'default';
+% title 'Costs — Admin — Dragline';
+% my $summary   = stash('summary')   // [];
+% my $breakdown = stash('breakdown') // [];
+
+<div class="page-header">
+  <h1>API Costs — Last 30 Days</h1>
+</div>
+
+% my $total_cost = 0;
+% $total_cost += ($_->{total_cost_usd} // 0) for @$summary;
+
+<p class="cost-total">Total: <strong>$<%= sprintf('%.4f', $total_cost) %></strong></p>
+
+% if (@$summary) {
+<table class="data-table">
+  <thead>
+    <tr><th>Provider</th><th>Total cost</th><th>Calls</th></tr>
+  </thead>
+  <tbody>
+  % for my $row (@$summary) {
+    <tr>
+      <td><%= $row->{provider} %></td>
+      <td>$<%= sprintf('%.4f', $row->{total_cost_usd} // 0) %></td>
+      <td><%= $row->{total_calls} // 0 %></td>
+    </tr>
+  % }
+  </tbody>
+</table>
+% } else {
+<p class="empty-state">No cost records in the last 30 days.</p>
+% }
+
+% if (@$breakdown) {
+<h2>Daily cost chart</h2>
+% my %daily;
+% for my $row (@$breakdown) {
+%   $daily{$row->{date}} += ($row->{total_cost_usd} // 0);
+% }
+% my $max = (sort { $b <=> $a } values %daily)[0] // 0;
+<div class="cost-chart">
+% for my $date (sort { $b cmp $a } keys %daily) {
+%   my $cost = $daily{$date};
+%   my $bar_len = ($max > 0) ? int($cost / $max * 40) : 0;
+%   my $bar = "\x{2588}" x $bar_len;
+  <div class="cost-bar-row">
+    <span class="cost-date"><%= $date %></span>
+    <span class="cost-bar"><%= $bar %></span>
+    <span class="cost-amount">$<%= sprintf('%.4f', $cost) %></span>
+  </div>
+% }
+</div>
+% }

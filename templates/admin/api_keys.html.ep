@@ -1,0 +1,79 @@
+% layout 'default';
+% title 'API Keys — Admin — Dragline';
+% my $keys = stash('api_keys') // [];
+
+<div class="page-header">
+  <h1>API Keys</h1>
+</div>
+
+% if (my $new_key = flash('new_api_key')) {
+<div class="flash flash-success flash-key">
+  <p><strong>Copy this key now — it will not be shown again.</strong></p>
+  <div class="key-display">
+    <code id="new-key-value"><%= $new_key %></code>
+    <button type="button" class="btn btn-sm btn-secondary" id="copy-key-btn">Copy</button>
+  </div>
+</div>
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  document.getElementById('copy-key-btn').addEventListener('click', function() {
+    var key = document.getElementById('new-key-value').textContent;
+    navigator.clipboard.writeText(key).then(function() {
+      document.getElementById('copy-key-btn').textContent = 'Copied!';
+    });
+  });
+})();
+</script>
+% }
+
+% if (@$keys) {
+<table class="data-table">
+  <thead>
+    <tr><th>Name</th><th>Prefix</th><th>Role</th><th>Last used</th><th>Requests</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+  % for my $k (@$keys) {
+    <tr>
+      <td><%= $k->{name} %></td>
+      <td class="td-mono"><%= $k->{key_prefix} %>…</td>
+      <td><span class="badge role-<%= $k->{role} %>"><%= $k->{role} %></span></td>
+      <td><%= $k->{last_used_at} ? substr($k->{last_used_at}, 0, 16) : '—' %></td>
+      <td><%= $k->{request_count} // 0 %></td>
+      <td><span class="badge <%= $k->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $k->{active} ? 'active' : 'revoked' %></span></td>
+      <td class="td-action">
+        % if ($k->{active}) {
+        <form method="post" action="/admin/api-keys/<%= $k->{id} %>/rotate" class="inline-form"
+              onsubmit="return confirm('Rotate key <%= $k->{name} %>? Old key will stop working immediately.')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-warning">Rotate</button>
+        </form>
+        <form method="post" action="/admin/api-keys/<%= $k->{id} %>/delete" class="inline-form"
+              onsubmit="return confirm('Revoke key <%= $k->{name} %>?')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-danger">Revoke</button>
+        </form>
+        % }
+      </td>
+    </tr>
+  % }
+  </tbody>
+</table>
+% } else {
+<p class="empty-state">No API keys yet.</p>
+% }
+
+<section class="detail-section">
+  <h2>Create API Key</h2>
+  <form method="post" action="/admin/api-keys" class="edit-form edit-form-compact">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <div class="field-row">
+      <input type="text" name="name" placeholder="Key name (e.g. partner-api)" required class="input-sm">
+      <select name="role" class="select-sm">
+        <option value="readonly">Readonly</option>
+        <option value="analyst">Analyst</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Create key</button>
+    </div>
+  </form>
+</section>

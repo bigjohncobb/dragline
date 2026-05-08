@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="<%= csrf_token %>">
+  <title><%= stash('title') // 'Dragline' %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dragline.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="nav-wordmark" href="/">Dragline</a>
+  <ul class="nav-links">
+    <li><a href="/">Dashboard</a></li>
+    <li><a href="/targets">Targets</a></li>
+    <li><a href="/people">People</a></li>
+    <li><a href="/projects">Projects</a></li>
+    <li><a href="/search">Search</a></li>
+    % if (current_user && current_user->{role} eq 'admin') {
+    <li><a href="/admin/health">Admin</a></li>
+    % }
+  </ul>
+  <div class="nav-user">
+    <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle theme">
+      <span id="theme-icon"></span>
+    </button>
+    % if (my $u = current_user) {
+    <span class="username"><%= $u->{username} %></span>
+    <span class="role-badge role-<%= $u->{role} %>"><%= $u->{role} %></span>
+    <a href="/change-password">Password</a>
+    <a href="/logout">Sign out</a>
+    % }
+  </div>
+</nav>
+
+% if (my $msg = flash('success')) {
+<div class="flash flash-success"><%= $msg %></div>
+% }
+% if (my $msg = flash('error')) {
+<div class="flash flash-error"><%= $msg %></div>
+% }
+
+<main>
+  %= content
+</main>
+
+<footer class="footer">
+  <span>Dragline</span>
+  <span class="version">v<%= $c->get_setting('app_version') // '0.1.0' %></span>
+</footer>
+<script src="/dragline.js"></script>
+</body>
+</html>

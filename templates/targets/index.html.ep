@@ -1,0 +1,151 @@
+% layout 'default';
+% title 'Targets — Dragline';
+% my $targets = stash('targets') // [];
+% my %projects_seen;
+% my @projects = grep { $_ && $_->{project_id} && !$projects_seen{$_->{project_id}}++ }
+%                map { { id => $_->{project_id}, name => $_->{project_name} } } @$targets;
+<div class="page-header">
+  <h1>Targets</h1>
+  <div class="page-actions">
+    <a href="/targets/export" class="btn btn-secondary btn-sm">Export CSV</a>
+    % if (@projects) {
+    <form class="inline-form" id="new-target-form">
+      <select id="new-target-project" class="select-sm">
+        <option value="">Select project…</option>
+        % for my $proj (sort { $a->{name} cmp $b->{name} } @projects) {
+        <option value="<%= $proj->{id} %>"><%= $proj->{name} %></option>
+        % }
+      </select>
+      <button type="button" class="btn btn-primary btn-sm" id="new-target-btn">New Target</button>
+    </form>
+    % }
+  </div>
+</div>
+
+<form method="get" action="/targets" class="search-form">
+  <input type="text" name="search" value="<%= stash('search') // '' %>" placeholder="Search targets by name, alias, or country…" class="input-search">
+  <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+  % if (stash('search')) {
+  <a href="/targets" class="btn btn-secondary btn-sm">Clear</a>
+  % }
+</form>
+
+% if (@projects > 1) {
+<div class="filter-bar">
+  <label for="project-filter">Filter by project:</label>
+  <select id="project-filter" class="select-sm">
+    <option value="">All projects</option>
+    % for my $proj (sort { $a->{name} cmp $b->{name} } @projects) {
+    <option value="<%= $proj->{id} %>"><%= $proj->{name} %></option>
+    % }
+  </select>
+</div>
+% }
+
+% if (!@$targets) {
+<p class="empty-state">No targets yet.</p>
+% } else {
+<form method="post" action="/targets/bulk" id="bulk-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="bulk-actions-bar">
+    <select name="bulk_action" class="select-sm" id="bulk-action-select">
+      <option value="">Bulk actions…</option>
+      <option value="activate">Activate</option>
+      <option value="deactivate">Deactivate</option>
+      <option value="generate_dossier">Generate Dossier</option>
+      <option value="discover">Discover</option>
+      <option value="forge_sync">Forge Sync</option>
+      <option value="delete">Delete</option>
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm" id="bulk-submit" disabled>Apply</button>
+  </div>
+
+  <table class="data-table" id="targets-table">
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="select-all"></th>
+        <th>Name</th>
+        <th>Project</th>
+        <th>Type</th>
+        <th>Country</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    % for my $t (@$targets) {
+      <tr data-project-id="<%= $t->{project_id} %>">
+        <td><input type="checkbox" name="target_ids" value="<%= $t->{id} %>" class="target-checkbox"></td>
+        <td><a href="/targets/<%= $t->{id} %>"><%= $t->{canonical_name} %></a></td>
+        <td><%= $t->{project_name} %></td>
+        <td><span class="badge"><%= $t->{entity_type} %></span></td>
+        <td><%= $t->{country} // '—' %></td>
+        <td><span class="badge <%= $t->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $t->{active} ? 'active' : 'inactive' %></span></td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+</form>
+% }
+
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  var filter = document.getElementById('project-filter');
+  if (filter) {
+    filter.addEventListener('change', function() {
+      var pid = this.value;
+      document.querySelectorAll('#targets-table tbody tr').forEach(function(row) {
+        row.style.display = (!pid || row.dataset.projectId === pid) ? '' : 'none';
+      });
+    });
+  }
+  var newBtn = document.getElementById('new-target-btn');
+  if (newBtn) {
+    newBtn.addEventListener('click', function() {
+      var pid = document.getElementById('new-target-project').value;
+      if (pid) window.location.href = '/projects/' + pid + '/targets/new';
+    });
+  }
+
+  var selectAll = document.getElementById('select-all');
+  var checkboxes = document.querySelectorAll('.target-checkbox');
+  var bulkSelect = document.getElementById('bulk-action-select');
+  var bulkSubmit = document.getElementById('bulk-submit');
+
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      checkboxes.forEach(function(cb) {
+        cb.checked = selectAll.checked;
+      });
+      updateBulkButton();
+    });
+  }
+
+  checkboxes.forEach(function(cb) {
+    cb.addEventListener('change', updateBulkButton);
+  });
+
+  if (bulkSelect) {
+    bulkSelect.addEventListener('change', updateBulkButton);
+  }
+
+  function updateBulkButton() {
+    var anyChecked = document.querySelectorAll('.target-checkbox:checked').length > 0;
+    var actionSelected = bulkSelect && bulkSelect.value !== '';
+    if (bulkSubmit) {
+      bulkSubmit.disabled = !(anyChecked && actionSelected);
+    }
+  }
+
+  var bulkForm = document.getElementById('bulk-form');
+  if (bulkForm) {
+    bulkForm.addEventListener('submit', function(e) {
+      var action = bulkSelect.value;
+      if (action === 'delete') {
+        if (!confirm('Delete selected targets? This cannot be undone.')) {
+          e.preventDefault();
+        }
+      }
+    });
+  }
+})();
+</script>
