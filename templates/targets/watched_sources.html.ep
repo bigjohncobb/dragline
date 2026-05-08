@@ -1,0 +1,54 @@
+% layout 'default';
+% title 'Watched Sources — ' . stash('target')->{canonical_name} . ' — Dragline';
+% my $target  = stash('target');
+% my $sources = stash('sources') // [];
+
+<div class="page-header">
+  <h1>Watched Sources: <%= $target->{canonical_name} %></h1>
+  <div class="page-actions">
+    <a href="/targets/<%= $target->{id} %>/content" class="btn btn-secondary btn-sm">Content</a>
+  </div>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr><th>URL</th><th>Cadence</th><th>Last checked</th><th>Next check</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+%   for my $s (@$sources) {
+    <tr>
+      <td><a href="<%= $s->{url} %>" target="_blank"><%= $s->{url} %></a></td>
+      <td><%= $s->{watch_cadence} %></td>
+      <td><%= $s->{last_checked_at} ? substr($s->{last_checked_at}, 0, 16) : '—' %></td>
+      <td><%= $s->{next_check_at} ? substr($s->{next_check_at}, 0, 16) : '—' %></td>
+      <td><span class="badge <%= $s->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $s->{active} ? 'active' : 'inactive' %></span></td>
+      <td class="td-action">
+        <form method="post" action="/targets/<%= $target->{id} %>/watched-sources/<%= $s->{id} %>/delete" class="inline-form"
+              onsubmit="return confirm('Remove this watched source?')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+        </form>
+      </td>
+    </tr>
+%   }
+%   if (!@$sources) {
+    <tr><td colspan="6" class="empty-state">No watched sources for this target.</td></tr>
+%   }
+  </tbody>
+</table>
+
+<section class="detail-section">
+  <h2>Add Watched Source</h2>
+  <form method="post" action="/targets/<%= $target->{id} %>/watched-sources" class="edit-form edit-form-compact">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <div class="field-row">
+      <input type="url" name="url" placeholder="https://example.com/page" required class="input-sm" style="width: 50%;">
+      <select name="watch_cadence" class="select-sm">
+        <option value="hourly">Hourly</option>
+        <option value="daily" selected>Daily</option>
+        <option value="weekly">Weekly</option>
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Add source</button>
+    </div>
+  </form>
+</section>

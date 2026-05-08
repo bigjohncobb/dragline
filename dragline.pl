@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use utf8;
 
-use lib 'lib';
+use lib 'lib', 'local/lib/perl5';
 
 package Dragline;
 use Mojo::Base 'Mojolicious', -signatures;
@@ -64,6 +64,10 @@ sub startup ($self) {
     $self->minion->add_task(monitor => 'Dragline::Job::Monitor');
     $self->minion->add_task(timeline_extract => 'Dragline::Job::TimelineExtract');
     $self->minion->add_task(sanctions_screen => 'Dragline::Job::SanctionsScreen');
+    $self->minion->add_task(domain_enrich   => 'Dragline::Job::DomainEnrich');
+    $self->minion->add_task(doc_intelligence => 'Dragline::Job::DocIntelligence');
+    $self->minion->add_task(adversarial_check => 'Dragline::Job::AdversarialCheck');
+    $self->minion->add_task(backup => 'Dragline::Job::Backup');
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
@@ -325,6 +329,11 @@ sub startup ($self) {
     $auth->post('/targets/:id/aliases/:alias_id/delete')->to('Targets#delete_alias');
     $auth->post('/targets/:id/domains')->to('Targets#add_domain');
     $auth->post('/targets/:id/domains/:domain_id/delete')->to('Targets#delete_domain');
+    $auth->post('/targets/:id/enrich-domains')->to('Targets#enrich_domains');
+    $auth->post('/targets/:id/org-structure')->to('Targets#add_org_structure');
+    $auth->post('/targets/:id/org-structure/:rel_id/delete')->to('Targets#delete_org_structure');
+    $auth->post('/targets/:id/peers')->to('Targets#add_peer');
+    $auth->post('/targets/:id/peers/:rel_id/delete')->to('Targets#delete_peer');
     $auth->get('/targets/:id/monitoring')->to('Targets#monitoring_form');
     $auth->post('/targets/:id/monitoring')->to('Targets#update_monitoring');
 
@@ -338,6 +347,10 @@ sub startup ($self) {
     $auth->post('/targets/:id/content/:content_id')->to('Content#update');
     $auth->post('/targets/:id/content/:content_id/delete')->to('Content#delete');
     $auth->post('/targets/:id/content/:content_id/reprocess')->to('Content#reprocess');
+    $auth->post('/targets/:id/content/:content_id/extract')->to('Content#extract_intelligence');
+    $auth->get('/targets/:id/watched-sources')->to('Content#watched_sources');
+    $auth->post('/targets/:id/watched-sources')->to('Content#add_watched_source');
+    $auth->post('/targets/:id/watched-sources/:ws_id/delete')->to('Content#delete_watched_source');
     $auth->get('/admin/crawl-queue')->to('Content#crawl_queue');
     $auth->post('/admin/crawl-queue/:queue_id/retry')->to('Content#retry_crawl');
     $auth->post('/admin/crawl-queue/:queue_id/delete')->to('Content#delete_crawl_queue');
@@ -349,10 +362,12 @@ sub startup ($self) {
     $auth->get('/people/new')->to('People#new_form');
     $auth->post('/people')->to('People#create');
     $auth->get('/search')->to('Search#semantic');
+    $auth->get('/search/text')->to('Search#text');
     $auth->get('/people/:id')->to('People#show');
     $auth->get('/people/:id/edit')->to('People#edit_form');
     $auth->post('/people/:id')->to('People#update');
     $auth->post('/people/:id/delete')->to('People#delete');
+    $auth->post('/people/:id/merge')->to('People#merge');
     $auth->post('/people/:id/roles')->to('People#add_role');
     $auth->post('/people/:id/roles/:role_id/delete')->to('People#delete_role');
     $auth->post('/people/:id/connections')->to('People#add_connection');
@@ -377,6 +392,9 @@ sub startup ($self) {
     $admin->post('/api-keys')->to('Admin#create_api_key');
     $admin->post('/api-keys/:id/delete')->to('Admin#delete_api_key');
     $admin->post('/api-keys/:id/rotate')->to('Admin#rotate_api_key');
+
+    $admin->get('/import-targets')->to('Admin#import_targets_form');
+    $admin->post('/import-targets')->to('Admin#import_targets');
 
     $self->plugin('Minion::Admin', { route => $admin->any('/jobs') });
 

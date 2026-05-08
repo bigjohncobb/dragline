@@ -24,7 +24,7 @@ sub run {
     my $minion = $self->app->minion;
     my $log    = $self->app->log;
 
-    my ($forge_count, $crawl_count, $discover_count) = (0, 0, 0);
+    my ($forge_count, $crawl_count, $discover_count, $watch_count) = (0, 0, 0, 0);
 
     # ---- ForgeSync ----
     my $forge_targets = $dbh->selectall_arrayref(
@@ -142,8 +142,83 @@ sub run {
         $discover_count++;
     }
 
+    # ---- Watched Sources ----
+    my $watched = $dbh->selectall_arrayref(
+        q{SELECT id, target_id, url, watch_cadence FROM watched_sources
+          WHERE next_check_at <= datetime('now')
+            AND active = 1},
+        { Slice => {} },
+    );
+    for my $ws (@$watched) {
+        my $cq_id = $_uuid->create_str;
+        eval {
+            $dbh->do(
+                q{INSERT INTO crawl_queue
+                    (id, target_id, url, source, priority, status)
+                  VALUES (?, ?, ?, 'watch', 4, 'pending')},
+                undef, $cq_id, $ws->{target_id}, $ws->{url},
+            );
+        };
+        if ($@) {
+            if ($@ =~ /UNIQUE constraint failed/i) {
+                $cq_id = $dbh->selectrow_array(
+                    q{SELECT id FROM crawl_queue WHERE target_id=? AND url=?},
+                    undef, $ws->{target_id}, $ws->{url},
+                );
+            } else {
+                $log->error("ScheduleCrawls: watched source crawl_queue insert failed: $@");
+                next;
+            }
+        }
+
+        $minion->enqueue(
+            crawl_static => [{
+                target_id      => $ws->{target_id},
+                url            => $ws->{url},
+                crawl_queue_id => $cq_id,
+            }],
+            {attempts => 3},
+        );
+
+        my $offset = $CADENCE_OFFSET{ $ws->{watch_cadence} } // '+1 day';
+        $dbh->do(
+            "UPDATE watched_sources SET last_checked_at = datetime('now'),"
+            . " next_check_at = datetime('now', ?) WHERE id = ?",
+            undef, $offset, $ws->{id},
+        );
+        $watch_count++;
+    }
+
     $log->info("ScheduleCrawls: $forge_count forge syncs,"
-        . " $crawl_count crawls, $discover_count discovers queued.");
+        . " $crawl_count crawls, $discover_count discovers, $watch_count watches queued.");
+
+    # ---- Backup ----
+    my $backup_enabled = $dbh->selectrow_array(
+        q{SELECT value FROM settings WHERE key='backup_enabled'},
+        undef,
+    ) // '0';
+    if ($backup_enabled eq '1') {
+        my $backup_schedule = $dbh->selectrow_array(
+            q{SELECT value FROM settings WHERE key='backup_schedule'},
+            undef,
+        ) // 'daily';
+        my $last_backup = $dbh->selectrow_array(
+            q{SELECT MAX(started_at) FROM backup_logs WHERE status='complete'},
+            undef,
+        );
+        my $should_backup = 0;
+        if (!$last_backup) {
+            $should_backup = 1;
+        } elsif ($backup_schedule eq 'hourly') {
+            $should_backup = 1 if $last_backup le $dbh->selectrow_array("SELECT datetime('now', '-1 hour')");
+        } else {
+            $should_backup = 1 if $last_backup le $dbh->selectrow_array("SELECT datetime('now', '-1 day')");
+        }
+        if ($should_backup) {
+            $minion->enqueue('backup', [{}], {attempts => 2});
+            $log->info("ScheduleCrawls: backup job queued");
+        }
+    }
 
     # Re-enqueue self for next hourly run, protected by minion lock to prevent duplicates
     if ($minion->lock('schedule_crawls_reenqueue', 3600)) {

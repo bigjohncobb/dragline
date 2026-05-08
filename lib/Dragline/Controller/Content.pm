@@ -353,6 +353,34 @@ sub reprocess ($c) {
     $c->redirect_to("/targets/$id/content");
 }
 
+sub extract_intelligence ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('expensive')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id') . '/content');
+    }
+
+    my $id = $c->param('id');
+    my $content_id = $c->param('content_id');
+
+    my $content = $c->db->selectrow_hashref(
+        q{SELECT * FROM raw_content WHERE id = ? AND target_id = ?}, undef, $content_id, $id,
+    );
+    unless ($content) {
+        $c->reply->not_found;
+        return;
+    }
+
+    $c->minion->enqueue(doc_intelligence => [{ raw_content_id => $content_id }]);
+    $c->log_audit('extract_intelligence', 'raw_content', $content_id);
+    $c->flash(success => 'Document intelligence extraction queued.');
+    $c->redirect_to("/targets/$id/content");
+}
+
 sub crawl_queue ($c) {
     my $status = $c->param('status') // '';
     my @where;
@@ -430,6 +458,92 @@ sub delete_crawl_queue ($c) {
     $c->db->do(q{DELETE FROM crawl_queue WHERE id = ?}, undef, $queue_id);
     $c->flash(success => 'Queue item deleted.');
     $c->redirect_to('/admin/crawl-queue');
+}
+
+sub watched_sources ($c) {
+    my $id = $c->param('id');
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT * FROM targets WHERE id = ?}, undef, $id,
+    );
+    unless ($target) {
+        $c->reply->not_found;
+        return;
+    }
+    my $sources = $c->db->selectall_arrayref(
+        q{SELECT * FROM watched_sources WHERE target_id = ? ORDER BY created_at DESC},
+        { Slice => {} }, $id,
+    );
+    $c->stash(target => $target, sources => $sources);
+    $c->render(template => 'targets/watched_sources');
+}
+
+sub add_watched_source ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id') . '/watched-sources');
+    }
+
+    my $id = $c->param('id');
+    my $url = $c->param('url') // '';
+    my $cadence = $c->param('watch_cadence') // 'daily';
+    $url =~ s/^\s+|\s+$//g;
+
+    unless (length($url) && $url =~ m{^https?://}i) {
+        $c->flash(error => 'Please enter a valid URL starting with http:// or https://');
+        $c->redirect_to("/targets/$id/watched-sources");
+        return;
+    }
+    unless ($c->check_ssrf($url)) {
+        $c->flash(error => 'That URL is not allowed (blocked by security policy).');
+        $c->redirect_to("/targets/$id/watched-sources");
+        return;
+    }
+    unless (grep { $_ eq $cadence } qw(hourly daily weekly)) {
+        $cadence = 'daily';
+    }
+
+    my $ws_id = $c->new_uuid;
+    eval {
+        $c->db->do(
+            q{INSERT INTO watched_sources
+                (id, target_id, url, watch_cadence, next_check_at, created_at, updated_at)
+              VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))},
+            undef, $ws_id, $id, $url, $cadence,
+        );
+    };
+    if ($@) {
+        if ($@ =~ /UNIQUE constraint failed/) {
+            $c->flash(error => 'This URL is already being watched.');
+        } else {
+            $c->flash(error => 'Failed to add watched source.');
+        }
+    } else {
+        $c->log_audit('add_watched_source', 'watched_source', $ws_id, { url => $url, cadence => $cadence });
+        $c->flash(success => 'Watched source added.');
+    }
+    $c->redirect_to("/targets/$id/watched-sources");
+}
+
+sub delete_watched_source ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id') . '/watched-sources');
+    }
+
+    my $id = $c->param('id');
+    my $ws_id = $c->param('ws_id');
+    $c->db->do(q{DELETE FROM watched_sources WHERE id = ? AND target_id = ?}, undef, $ws_id, $id);
+    $c->log_audit('delete_watched_source', 'watched_source', $ws_id);
+    $c->flash(success => 'Watched source removed.');
+    $c->redirect_to("/targets/$id/watched-sources");
 }
 
 1;

@@ -132,11 +132,21 @@ CREATE TABLE IF NOT EXISTS raw_content_embeddings (
     UNIQUE (raw_content_id)
 );
 
+CREATE TABLE IF NOT EXISTS document_extractions (
+    id              TEXT PRIMARY KEY,
+    raw_content_id  TEXT NOT NULL REFERENCES raw_content(id) ON DELETE CASCADE,
+    extraction_type TEXT NOT NULL DEFAULT 'structured',
+    extracted_json  TEXT,
+    model_used      TEXT,
+    confidence      REAL,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS change_events (
     id             TEXT PRIMARY KEY,
     target_id      TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     event_type     TEXT NOT NULL
-        CHECK (event_type IN ('new_content','gap_detected','dossier_updated','crawl_failed','forge_sync','discovery_complete')),
+        CHECK (event_type IN ('new_content','updated_content','gap_detected','dossier_updated','crawl_failed','forge_sync','discovery_complete')),
     summary        TEXT NOT NULL,
     source_url     TEXT,
     raw_content_id TEXT REFERENCES raw_content(id) ON DELETE SET NULL,
@@ -206,6 +216,32 @@ CREATE TABLE IF NOT EXISTS person_connections (
     created_at DATETIME NOT NULL DEFAULT (datetime('now')),
     CHECK (person_id_a < person_id_b),
     UNIQUE (person_id_a, person_id_b, relationship_type)
+);
+
+CREATE TABLE IF NOT EXISTS org_structure (
+    id                TEXT PRIMARY KEY,
+    parent_target_id  TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    child_target_id   TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    relationship_type TEXT NOT NULL
+        CHECK (relationship_type IN ('subsidiary','parent','owner','affiliate','branch')),
+    percent_ownership REAL,
+    notes             TEXT,
+    created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (parent_target_id, child_target_id, relationship_type)
+);
+
+CREATE TABLE IF NOT EXISTS peer_relationships (
+    id                TEXT PRIMARY KEY,
+    target_id_a       TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    target_id_b       TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    relationship_type TEXT NOT NULL
+        CHECK (relationship_type IN ('competitor','partner','supplier','client','peer')),
+    notes             TEXT,
+    created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    CHECK (target_id_a < target_id_b),
+    UNIQUE (target_id_a, target_id_b, relationship_type)
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -526,6 +562,17 @@ CREATE INDEX IF NOT EXISTS idx_domain_whois_target       ON domain_whois(target_
 CREATE INDEX IF NOT EXISTS idx_domain_dns_domain         ON domain_dns_records(domain);
 CREATE INDEX IF NOT EXISTS idx_domain_dns_target         ON domain_dns_records(target_id);
 
+CREATE INDEX IF NOT EXISTS idx_doc_extractions_raw_content ON document_extractions(raw_content_id);
+
+CREATE INDEX IF NOT EXISTS idx_org_structure_parent      ON org_structure(parent_target_id);
+CREATE INDEX IF NOT EXISTS idx_org_structure_child       ON org_structure(child_target_id);
+
+CREATE INDEX IF NOT EXISTS idx_peer_rel_a                ON peer_relationships(target_id_a);
+CREATE INDEX IF NOT EXISTS idx_peer_rel_b                ON peer_relationships(target_id_b);
+
+CREATE INDEX IF NOT EXISTS idx_person_merge_log_primary  ON person_merge_log(primary_person_id);
+CREATE INDEX IF NOT EXISTS idx_person_merge_log_merged   ON person_merge_log(merged_person_id);
+
 -- ============================================================
 -- TRIGGERS — maintain updated_at automatically
 -- ============================================================
@@ -621,6 +668,20 @@ BEGIN
     UPDATE sanctions_matches SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_org_structure_updated_at
+AFTER UPDATE ON org_structure
+FOR EACH ROW
+BEGIN
+    UPDATE org_structure SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_peer_relationships_updated_at
+AFTER UPDATE ON peer_relationships
+FOR EACH ROW
+BEGIN
+    UPDATE peer_relationships SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
 -- ============================================================
 -- SEED DATA
 -- ============================================================
@@ -641,17 +702,121 @@ VALUES (
 );
 
 -- Default settings. Encrypted fields start empty, operator sets real values via admin UI.
+CREATE TABLE IF NOT EXISTS raw_content_diffs (
+    id                 TEXT PRIMARY KEY,
+    target_id          TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    old_raw_content_id TEXT REFERENCES raw_content(id) ON DELETE SET NULL,
+    new_raw_content_id TEXT NOT NULL REFERENCES raw_content(id) ON DELETE CASCADE,
+    source_url         TEXT,
+    old_hash           TEXT NOT NULL,
+    new_hash           TEXT NOT NULL,
+    diff_text          TEXT,
+    word_count_delta   INTEGER,
+    created_at         DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS watched_sources (
+    id              TEXT PRIMARY KEY,
+    target_id       TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    url             TEXT NOT NULL,
+    watch_cadence   TEXT NOT NULL DEFAULT 'daily'
+        CHECK (watch_cadence IN ('hourly','daily','weekly')),
+    last_checked_at DATETIME,
+    next_check_at   DATETIME,
+    active          INTEGER NOT NULL DEFAULT 1,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (target_id, url)
+);
+
+CREATE TABLE IF NOT EXISTS domain_blocklist (
+    id         TEXT PRIMARY KEY,
+    domain     TEXT NOT NULL UNIQUE,
+    reason     TEXT,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS adversarial_checks (
+    id                    TEXT PRIMARY KEY,
+    target_id             TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    dossier_id            TEXT NOT NULL REFERENCES dossiers(id) ON DELETE CASCADE,
+    section_number        INTEGER NOT NULL,
+    original_text         TEXT NOT NULL,
+    cross_validation_text TEXT,
+    agreement_score       REAL,
+    model_used            TEXT,
+    status                TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','complete','failed')),
+    created_at            DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at            DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS backup_logs (
+    id               TEXT PRIMARY KEY,
+    backup_type      TEXT NOT NULL DEFAULT 'full'
+        CHECK (backup_type IN ('full','incremental')),
+    status           TEXT NOT NULL DEFAULT 'running'
+        CHECK (status IN ('running','complete','failed')),
+    file_path        TEXT,
+    file_size_bytes  INTEGER,
+    checksum         TEXT,
+    error_message    TEXT,
+    started_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+    completed_at     DATETIME,
+    created_at       DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_raw_content_diffs_target ON raw_content_diffs(target_id);
+CREATE INDEX IF NOT EXISTS idx_raw_content_diffs_url     ON raw_content_diffs(source_url);
+CREATE INDEX IF NOT EXISTS idx_raw_content_diffs_created ON raw_content_diffs(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_watched_sources_target    ON watched_sources(target_id);
+CREATE INDEX IF NOT EXISTS idx_watched_sources_next      ON watched_sources(next_check_at);
+CREATE INDEX IF NOT EXISTS idx_watched_sources_active    ON watched_sources(active);
+
+CREATE INDEX IF NOT EXISTS idx_domain_blocklist_domain   ON domain_blocklist(domain);
+
+CREATE INDEX IF NOT EXISTS idx_adversarial_checks_target ON adversarial_checks(target_id);
+CREATE INDEX IF NOT EXISTS idx_adversarial_checks_status ON adversarial_checks(status);
+
+CREATE INDEX IF NOT EXISTS idx_backup_logs_status        ON backup_logs(status);
+CREATE INDEX IF NOT EXISTS idx_backup_logs_started       ON backup_logs(started_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_watched_sources_updated_at
+AFTER UPDATE ON watched_sources
+FOR EACH ROW
+BEGIN
+    UPDATE watched_sources SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_adversarial_checks_updated_at
+AFTER UPDATE ON adversarial_checks
+FOR EACH ROW
+BEGIN
+    UPDATE adversarial_checks SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
 INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
-    ('anthropic_api_key',        '',                       1, datetime('now')),
-    ('qwen_api_key',             '',                       1, datetime('now')),
-    ('alibaba_api_key',          '',                       1, datetime('now')),
-    ('brave_api_key',            '',                       1, datetime('now')),
-    ('forge_api_url',            '',                       0, datetime('now')),
-    ('forge_api_key',            '',                       1, datetime('now')),
-    ('ollama_base_url',          'http://localhost:11434', 0, datetime('now')),
-    ('crawl_service_url',        'http://localhost:3002',  0, datetime('now')),
-    ('r_service_url',            'http://localhost:3003',  0, datetime('now')),
-    ('crawl_content_threshold',  '500',                    0, datetime('now')),
-    ('default_embed_model',      'text-embedding-v4',      0, datetime('now')),
-    ('opensanctions_api_key',    '',                       1, datetime('now')),
-    ('app_version',              '0.2.0',                  0, datetime('now'));
+    ('anthropic_api_key',             '',                       1, datetime('now')),
+    ('qwen_api_key',                  '',                       1, datetime('now')),
+    ('alibaba_api_key',               '',                       1, datetime('now')),
+    ('brave_api_key',                 '',                       1, datetime('now')),
+    ('forge_api_url',                 '',                       0, datetime('now')),
+    ('forge_api_key',                 '',                       1, datetime('now')),
+    ('ollama_base_url',               'http://localhost:11434', 0, datetime('now')),
+    ('crawl_service_url',             'http://localhost:3002',  0, datetime('now')),
+    ('r_service_url',                 'http://localhost:3003',  0, datetime('now')),
+    ('crawl_content_threshold',       '500',                    0, datetime('now')),
+    ('default_embed_model',           'text-embedding-v4',      0, datetime('now')),
+    ('opensanctions_api_key',         '',                       1, datetime('now')),
+    ('app_version',                   '0.2.0',                  0, datetime('now')),
+    ('adversarial_check_enabled',     '0',                      0, datetime('now')),
+    ('adversarial_check_sample_rate', '10',                     0, datetime('now')),
+    ('backup_enabled',                '0',                      0, datetime('now')),
+    ('backup_schedule',               'daily',                  0, datetime('now')),
+    ('backup_s3_endpoint',            '',                       0, datetime('now')),
+    ('backup_s3_bucket',              '',                       0, datetime('now')),
+    ('backup_s3_access_key',          '',                       1, datetime('now')),
+    ('backup_s3_secret_key',          '',                       1, datetime('now')),
+    ('backup_retention_days',         '30',                     0, datetime('now'));

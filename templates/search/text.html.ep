@@ -1,0 +1,30 @@
+% layout 'default';
+% title 'Text Search — Dragline';
+% my $results = stash('results') // [];
+% my $query   = stash('query')   // '';
+
+<div class="page-header">
+  <h1>Text Search</h1>
+</div>
+
+<form method="get" action="/search/text" class="search-form">
+  <input type="text" name="q" value="<%= $query %>" placeholder="Search across targets, people, events, and content..." class="input-lg" style="width: 60%;">
+  <button type="submit" class="btn btn-primary">Search</button>
+</form>
+
+% if (length($query)) {
+<p class="results-count"><%= scalar(@$results) %> results for "<%= $query %>"</p>
+
+<div class="search-results">
+%   for my $r (@$results) {
+  <div class="search-result search-result-<%= $r->{type} %>">
+    <div class="result-header">
+      <span class="result-type badge"><%= $r->{type} %></span>
+      <span class="result-subtype"><%= $r->{subtype} %></span>
+    </div>
+    <h3 class="result-title"><%= $r->{title} %></h3>
+    <p class="result-snippet"><%= $r->{snippet} %></p>
+  </div>
+%   }
+</div>
+% }

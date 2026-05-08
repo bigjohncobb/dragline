@@ -8,6 +8,7 @@
   <div class="page-actions">
     <a href="/admin/settings" class="btn btn-secondary btn-sm">Settings</a>
     <a href="/admin/crawl-queue" class="btn btn-secondary btn-sm">Crawl Queue</a>
+    <a href="/admin/domain-blocklist" class="btn btn-secondary btn-sm">Domain Blocklist</a>
     <a href="/admin/costs"    class="btn btn-secondary btn-sm">Costs</a>
     <a href="/admin/audit"    class="btn btn-secondary btn-sm">Audit log</a>
     <a href="/admin/users"    class="btn btn-secondary btn-sm">Users</a>

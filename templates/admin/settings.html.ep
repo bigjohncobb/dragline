@@ -102,6 +102,80 @@
     </div>
   </fieldset>
 
+  <fieldset class="settings-group">
+    <legend>Adversarial Checks</legend>
+
+    <div class="field">
+      <label for="adversarial_check_enabled">Enable adversarial checks</label>
+      <select id="adversarial_check_enabled" name="adversarial_check_enabled" class="select-sm">
+        <option value="0" <%= ($s->{adversarial_check_enabled}{value} // '0') eq '0' ? 'selected' : '' %>>Disabled</option>
+        <option value="1" <%= ($s->{adversarial_check_enabled}{value} // '0') eq '1' ? 'selected' : '' %>>Enabled</option>
+      </select>
+      <span class="field-hint">Cross-validate dossier sections with a different LLM.</span>
+    </div>
+
+    <div class="field">
+      <label for="adversarial_check_sample_rate">Sample rate <span class="hint">(%)</span></label>
+      <input type="number" id="adversarial_check_sample_rate" name="adversarial_check_sample_rate"
+             value="<%= $s->{adversarial_check_sample_rate}{value} // '10' %>"
+             min="1" max="100" class="input-sm">
+    </div>
+  </fieldset>
+
+  <fieldset class="settings-group">
+    <legend>Backup</legend>
+
+    <div class="field">
+      <label for="backup_enabled">Enable scheduled backups</label>
+      <select id="backup_enabled" name="backup_enabled" class="select-sm">
+        <option value="0" <%= ($s->{backup_enabled}{value} // '0') eq '0' ? 'selected' : '' %>>Disabled</option>
+        <option value="1" <%= ($s->{backup_enabled}{value} // '0') eq '1' ? 'selected' : '' %>>Enabled</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="backup_schedule">Backup schedule</label>
+      <select id="backup_schedule" name="backup_schedule" class="select-sm">
+        <option value="daily" <%= ($s->{backup_schedule}{value} // 'daily') eq 'daily' ? 'selected' : '' %>>Daily</option>
+        <option value="hourly" <%= ($s->{backup_schedule}{value} // 'daily') eq 'hourly' ? 'selected' : '' %>>Hourly</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="backup_s3_endpoint">S3 endpoint</label>
+      <input type="text" id="backup_s3_endpoint" name="backup_s3_endpoint"
+             value="<%= $s->{backup_s3_endpoint}{value} // '' %>"
+             placeholder="https://s3.example.com">
+    </div>
+
+    <div class="field">
+      <label for="backup_s3_bucket">S3 bucket</label>
+      <input type="text" id="backup_s3_bucket" name="backup_s3_bucket"
+             value="<%= $s->{backup_s3_bucket}{value} // '' %>">
+    </div>
+
+    <div class="field">
+      <label for="backup_s3_access_key">S3 access key</label>
+      <input type="password" id="backup_s3_access_key" name="backup_s3_access_key"
+             value="<%= $s->{backup_s3_access_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+    </div>
+
+    <div class="field">
+      <label for="backup_s3_secret_key">S3 secret key</label>
+      <input type="password" id="backup_s3_secret_key" name="backup_s3_secret_key"
+             value="<%= $s->{backup_s3_secret_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+    </div>
+
+    <div class="field">
+      <label for="backup_retention_days">Retention <span class="hint">(days)</span></label>
+      <input type="number" id="backup_retention_days" name="backup_retention_days"
+             value="<%= $s->{backup_retention_days}{value} // '30' %>"
+             min="1" class="input-sm">
+    </div>
+  </fieldset>
+
   <div class="form-actions">
     <button type="submit" class="btn btn-primary">Save settings</button>
   </div>

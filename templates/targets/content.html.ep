@@ -64,6 +64,8 @@
     <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
     <button type="submit" class="btn btn-secondary">Forge Sync</button>
   </form>
+
+  <a href="/targets/<%= $t->{id} %>/watched-sources" class="btn btn-secondary">Watched Sources</a>
 </div>
 
 % my $content = stash('content') // [];
@@ -104,6 +106,10 @@
         <form method="post" action="/targets/<%= $t->{id} %>/content/<%= $rc->{id} %>/reprocess" class="inline-form">
           <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
           <button type="submit" class="btn btn-xs btn-secondary">Reprocess</button>
+        </form>
+        <form method="post" action="/targets/<%= $t->{id} %>/content/<%= $rc->{id} %>/extract" class="inline-form">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-xs btn-secondary">Extract</button>
         </form>
         <form method="post" action="/targets/<%= $t->{id} %>/content/<%= $rc->{id} %>/delete" class="inline-form"
               onsubmit="return confirm('Delete this content item?')">

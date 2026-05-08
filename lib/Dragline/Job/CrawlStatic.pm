@@ -9,6 +9,7 @@ use Dragline::SSRF;
 use Dragline::Crawl;
 use Data::UUID;
 use Digest::SHA qw(sha256_hex);
+use URI;
 
 my $_uuid = Data::UUID->new;
 
@@ -38,6 +39,15 @@ sub run {
         die "SSRF blocked: $ssrf_reason";
     }
 
+    # Check domain blocklist
+    my $blocked = _check_domain_blocklist($dbh, $url);
+    if ($blocked) {
+        _fail_queue($dbh, $crawl_queue_id, "Domain blocked: $blocked");
+        _insert_change_event($dbh, $target_id, 'crawl_failed', 'low',
+            "Crawl failed: domain blocked ($blocked)", $url);
+        die "Domain blocked: $blocked";
+    }
+
     my ($text, $title, $final_url, $word_count, $error) = Dragline::Crawl::fetch_static($url);
 
     if ($error) {
@@ -57,11 +67,13 @@ sub run {
     }
 
     my $content_hash = sha256_hex($text // '');
-    my $existing = $dbh->selectrow_array(
+
+    # Check for exact duplicate by hash
+    my $existing_hash_id = $dbh->selectrow_array(
         q{SELECT id FROM raw_content WHERE target_id=? AND content_hash=?},
         undef, $target_id, $content_hash,
     );
-    if ($existing) {
+    if ($existing_hash_id) {
         if ($crawl_queue_id) {
             $dbh->do(
                 q{UPDATE crawl_queue SET status='skipped', processed_at=datetime('now') WHERE id=?},
@@ -72,8 +84,16 @@ sub run {
         return;
     }
 
+    # Check for content change at same URL
+    my $existing_by_url = $dbh->selectrow_hashref(
+        q{SELECT id, content_hash, content_text, word_count FROM raw_content
+          WHERE target_id=? AND source_url=? ORDER BY fetched_at DESC LIMIT 1},
+        undef, $target_id, $final_url,
+    );
+
     my $rc_id = $_uuid->create_str;
     my $ce_id = $_uuid->create_str;
+    my $is_update = $existing_by_url ? 1 : 0;
 
     eval {
         $dbh->begin_work;
@@ -85,14 +105,52 @@ sub run {
             undef,
             $rc_id, $target_id, $final_url, $title, $text, $content_hash, $word_count,
         );
-        $dbh->do(
-            q{INSERT INTO change_events
-                (id, target_id, event_type, summary, source_url, raw_content_id, severity)
-              VALUES (?, ?, 'new_content', ?, ?, ?, 'info')},
-            undef,
-            $ce_id, $target_id, "New content crawled from $final_url",
-            $final_url, $rc_id,
-        );
+
+        if ($is_update) {
+            my $diff_id = $_uuid->create_str;
+            my $diff_text = _compute_diff($existing_by_url->{content_text} // '', $text // '');
+            my $word_delta = $word_count - ($existing_by_url->{word_count} // 0);
+            $dbh->do(
+                q{INSERT INTO raw_content_diffs
+                    (id, target_id, old_raw_content_id, new_raw_content_id, source_url,
+                     old_hash, new_hash, diff_text, word_count_delta)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)},
+                undef,
+                $diff_id, $target_id, $existing_by_url->{id}, $rc_id, $final_url,
+                $existing_by_url->{content_hash}, $content_hash, $diff_text, $word_delta,
+            );
+            eval {
+                $dbh->do(
+                    q{INSERT INTO change_events
+                        (id, target_id, event_type, summary, source_url, raw_content_id, severity)
+                      VALUES (?, ?, 'updated_content', ?, ?, ?, 'low')},
+                    undef,
+                    $ce_id, $target_id, "Content updated at $final_url",
+                    $final_url, $rc_id,
+                );
+            };
+            if ($@) {
+                # Fallback for databases without updated_content in CHECK constraint
+                $dbh->do(
+                    q{INSERT INTO change_events
+                        (id, target_id, event_type, summary, source_url, raw_content_id, severity)
+                      VALUES (?, ?, 'new_content', ?, ?, ?, 'info')},
+                    undef,
+                    $ce_id, $target_id, "Content updated at $final_url",
+                    $final_url, $rc_id,
+                );
+            }
+        }
+        else {
+            $dbh->do(
+                q{INSERT INTO change_events
+                    (id, target_id, event_type, summary, source_url, raw_content_id, severity)
+                  VALUES (?, ?, 'new_content', ?, ?, ?, 'info')},
+                undef,
+                $ce_id, $target_id, "New content crawled from $final_url",
+                $final_url, $rc_id,
+            );
+        }
         $dbh->commit;
     };
     if ($@) {
@@ -149,6 +207,43 @@ sub _insert_change_event {
             undef, $id, $target_id, $event_type, $summary, $source_url, $severity,
         );
     };
+}
+
+sub _check_domain_blocklist {
+    my ($dbh, $url) = @_;
+    my $domain = eval {
+        my $u = URI->new($url);
+        $u->host;
+    };
+    return undef unless $domain;
+    my $blocked = $dbh->selectrow_array(
+        q{SELECT domain FROM domain_blocklist WHERE domain = ?},
+        undef, $domain,
+    );
+    return $blocked;
+}
+
+sub _compute_diff {
+    my ($old_text, $new_text) = @_;
+    my @old_lines = split(/\n/, $old_text);
+    my @new_lines = split(/\n/, $new_text);
+    my $diff = '';
+    my $max = scalar(@old_lines) > scalar(@new_lines) ? scalar(@old_lines) : scalar(@new_lines);
+    for my $i (0..$max-1) {
+        my $o = $i < @old_lines ? $old_lines[$i] : undef;
+        my $n = $i < @new_lines ? $new_lines[$i] : undef;
+        if (!defined $o && defined $n) {
+            $diff .= "+ $n\n";
+        }
+        elsif (defined $o && !defined $n) {
+            $diff .= "- $o\n";
+        }
+        elsif (defined $o && defined $n && $o ne $n) {
+            $diff .= "- $o\n+ $n\n";
+        }
+    }
+    $diff = '[no line-level differences]' unless length $diff;
+    return $diff;
 }
 
 1;

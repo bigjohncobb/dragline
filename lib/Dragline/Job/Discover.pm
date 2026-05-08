@@ -8,6 +8,7 @@ use Mojo::Base 'Minion::Job', -signatures;
 use Dragline::Brave;
 use Data::UUID;
 use Mojo::UserAgent;
+use URI;
 
 my $_uuid = Data::UUID->new;
 
@@ -60,9 +61,26 @@ sub run {
     my $results = Dragline::Brave::search_for_target($ua, $brave_api_key, $target);
 
     my $queued_count = 0;
+    my $skipped_blocked = 0;
     for my $result (@$results) {
         my $url = $result->{url} // '';
         next unless length $url;
+
+        # Check domain blocklist
+        my $domain = eval {
+            my $u = URI->new($url);
+            $u->host;
+        };
+        if ($domain) {
+            my $blocked = $dbh->selectrow_array(
+                q{SELECT 1 FROM domain_blocklist WHERE domain = ?},
+                undef, $domain,
+            );
+            if ($blocked) {
+                $skipped_blocked++;
+                next;
+            }
+        }
 
         my $in_queue = $dbh->selectrow_array(
             q{SELECT id FROM crawl_queue WHERE target_id=? AND url=?},
@@ -102,7 +120,8 @@ sub run {
             (id, target_id, event_type, summary, severity)
           VALUES (?, ?, 'discovery_complete', ?, 'info')},
         undef, $ce_id, $target_id,
-        "$queued_count URLs queued for crawl via Brave discovery",
+        "$queued_count URLs queued for crawl via Brave discovery"
+        . ($skipped_blocked ? " ($skipped_blocked blocked domains skipped)" : ""),
     );
 
     $dbh->do(
