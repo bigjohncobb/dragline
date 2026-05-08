@@ -11,13 +11,19 @@ sub semantic ($c) {
 
     my $target_id = $c->param('target_id') // '';
 
+    my $dbh = $c->db;
+    my $saved_queries = $dbh->selectall_arrayref(
+        q{SELECT * FROM saved_queries
+          WHERE user_id = ?
+          ORDER BY created_at DESC},
+        { Slice => {} }, $c->current_user->{id},
+    );
+
     unless (length($query)) {
-        $c->stash(results => [], query => '', target_id => $target_id);
+        $c->stash(results => [], query => '', target_id => $target_id, saved_queries => $saved_queries);
         $c->render(template => 'search/semantic');
         return;
     }
-
-    my $dbh = $c->db;
     my $settings_getter = sub {
         my ($key) = @_;
         my $row = $dbh->selectrow_hashref(
@@ -79,7 +85,7 @@ sub semantic ($c) {
         $r->{snippet} = $text;
     }
 
-    $c->stash(results => $results, query => $query, target_id => $target_id);
+    $c->stash(results => $results, query => $query, target_id => $target_id, saved_queries => $saved_queries);
     $c->render(template => 'search/semantic');
 }
 
@@ -87,13 +93,20 @@ sub text ($c) {
     my $query = $c->param('q') // '';
     $query =~ s/^\s+|\s+$//g;
 
+    my $dbh = $c->db;
+    my $saved_queries = $dbh->selectall_arrayref(
+        q{SELECT * FROM saved_queries
+          WHERE user_id = ?
+          ORDER BY created_at DESC},
+        { Slice => {} }, $c->current_user->{id},
+    );
+
     unless (length($query)) {
-        $c->stash(results => [], query => '');
+        $c->stash(results => [], query => '', saved_queries => $saved_queries);
         $c->render(template => 'search/text');
         return;
     }
 
-    my $dbh = $c->db;
     my $like = '%' . $query . '%';
     my @results;
     my $limit = 20;
@@ -178,7 +191,7 @@ sub text ($c) {
         };
     }
 
-    $c->stash(results => \@results, query => $query);
+    $c->stash(results => \@results, query => $query, saved_queries => $saved_queries);
     $c->render(template => 'search/text');
 }
 

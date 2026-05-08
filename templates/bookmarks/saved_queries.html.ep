@@ -1,0 +1,28 @@
+% layout 'default';
+% title 'Saved Queries — Dragline';
+% my $queries = stash('queries') // [];
+
+<div class="page-header">
+  <h1>Saved Queries</h1>
+  <a href="/bookmarks" class="btn btn-sm">← Bookmarks</a>
+</div>
+
+% if (!@$queries) {
+<p class="empty-state">No saved queries yet.</p>
+% } else {
+<div class="card-grid">
+  % for my $sq (@$queries) {
+  <div class="card">
+    % my $url = $sq->{search_type} eq 'semantic' ? '/search' : '/search/text';
+    % $url .= '?q=' . $sq->{query_text};
+    <a href="<%= $url %>" class="card-title"><%= $sq->{label} %></a>
+    <span class="badge"><%= $sq->{search_type} %></span>
+    <span class="meta"><%= $sq->{query_text} %></span>
+    <form method="post" action="/saved-queries/<%= $sq->{id} %>/delete" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+    </form>
+  </div>
+  % }
+</div>
+% }

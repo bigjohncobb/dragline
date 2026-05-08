@@ -264,43 +264,74 @@ sub startup ($self) {
         return ($ENV{DRAGLINE_AIRGAP} // '0') eq '1' ? 1 : 0;
     });
 
-    $self->helper(dispatch_webhook => sub ($c, $event_type, $payload) {
+    $self->helper(fire_webhooks => sub ($c, $target_id, $event_type, $payload_href) {
         eval {
             my $configs = $c->db->selectall_arrayref(
-                q{SELECT id FROM webhook_configs WHERE active = 1},
-                { Slice => {} },
+                q{SELECT id, event_types FROM webhook_configs WHERE is_active = 1
+                  AND (target_id IS NULL OR target_id = ?)},
+                { Slice => {} }, $target_id,
             );
             for my $cfg (@$configs) {
-                $c->minion->enqueue(webhook_deliver => [{
-                    webhook_id => $cfg->{id},
-                    event_type => $event_type,
-                    payload    => $payload,
-                }], { attempts => 3 });
+                my $event_types = eval { JSON::PP::decode_json($cfg->{event_types}) } // [];
+                my $matches = 0;
+                if (@$event_types == 0) {
+                    $matches = 1;
+                } else {
+                    for my $et (@$event_types) {
+                        if ($et eq $event_type) {
+                            $matches = 1;
+                            last;
+                        }
+                    }
+                }
+                next unless $matches;
+                $c->app->minion->enqueue(
+                    webhook_deliver =>
+                    [{ config_id => $cfg->{id}, event_type => $event_type,
+                       payload   => $payload_href, target_id => $target_id }],
+                    { attempts => 4, priority => 1 },
+                );
             }
         };
-        $c->app->log->error("dispatch_webhook failed: $@") if $@;
+        $c->app->log->error("fire_webhooks failed: $@") if $@;
     });
 
-    $self->helper(dispatch_notification => sub ($c, $user_id, $event_type, $subject, $body, $link_url = undef) {
+    $self->helper(notify_users => sub ($c, $target_id, $event_type, $message, $change_event_id = undef) {
         eval {
-            my $pref = $c->db->selectrow_hashref(
-                q{SELECT web_enabled FROM notification_preferences
-                  WHERE user_id = ? AND event_type = ?},
-                undef, $user_id, $event_type,
+            my $dbh = $c->db;
+            my $users = $dbh->selectall_arrayref(
+                q{SELECT u.id FROM users u
+                  WHERE u.active = 1
+                    AND NOT EXISTS (
+                        SELECT 1 FROM notification_preferences np
+                        WHERE np.user_id = u.id
+                          AND np.event_type = ?
+                          AND np.notify_in_app = 0
+                    )},
+                { Slice => {} }, $event_type,
             );
-            # Default to enabled if no preference set
-            my $web_enabled = $pref ? $pref->{web_enabled} : 1;
-            return unless $web_enabled;
-
-            my $id = $c->new_uuid;
-            $c->db->do(
-                q{INSERT INTO user_notifications
-                  (id, user_id, event_type, subject, body, link_url, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, datetime('now'))},
-                undef, $id, $user_id, $event_type, $subject, $body, $link_url,
-            );
+            for my $user (@$users) {
+                $dbh->do(
+                    q{INSERT INTO user_notifications
+                        (id, user_id, change_event_id, target_id, event_type, message, created_at)
+                      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))},
+                    undef,
+                    $c->new_uuid, $user->{id}, $change_event_id,
+                    $target_id, $event_type, $message,
+                );
+            }
         };
-        $c->app->log->error("dispatch_notification failed: $@") if $@;
+        $c->app->log->error("notify_users failed: $@") if $@;
+    });
+
+    $self->helper(unread_notification_count => sub ($c) {
+        my $user = $c->current_user;
+        return 0 unless $user;
+        my ($count) = $c->db->selectrow_array(
+            q{SELECT COUNT(*) FROM user_notifications WHERE user_id = ? AND is_read = 0},
+            undef, $user->{id},
+        );
+        return $count // 0;
     });
 
     # ------------------------------------------------------------------ #
@@ -414,19 +445,23 @@ sub startup ($self) {
     $auth->post('/people/:id/connections/:conn_id/delete')->to('People#delete_connection');
 
     $auth->get('/bookmarks')->to('Bookmarks#index');
+    $auth->post('/bookmarks')->to('Bookmarks#create');
+    $auth->post('/bookmarks/:id/delete')->to('Bookmarks#delete');
     $auth->post('/bookmarks/collections')->to('Bookmarks#create_collection');
-    $auth->post('/bookmarks/collections/:id/delete')->to('Bookmarks#delete_collection');
-    $auth->get('/bookmarks/collections/:id')->to('Bookmarks#show_collection');
-    $auth->post('/bookmarks')->to('Bookmarks#add_bookmark');
-    $auth->post('/bookmarks/:bookmark_id/delete')->to('Bookmarks#delete_bookmark');
-    $auth->post('/saved-queries')->to('Bookmarks#create_saved_query');
-    $auth->post('/saved-queries/:id/delete')->to('Bookmarks#delete_saved_query');
+    $auth->post('/bookmarks/collections/:coll_id/items')->to('Bookmarks#add_to_collection');
+    $auth->get('/saved-queries')->to('Bookmarks#saved_queries');
+    $auth->post('/saved-queries')->to('Bookmarks#save_query');
+    $auth->post('/saved-queries/:id/delete')->to('Bookmarks#delete_query');
 
     $auth->get('/notifications')->to('Notifications#index');
     $auth->post('/notifications/:id/read')->to('Notifications#mark_read');
     $auth->post('/notifications/read-all')->to('Notifications#mark_all_read');
-    $auth->get('/notifications/preferences')->to('Notifications#preferences');
+    $auth->get('/notifications/preferences')->to('Notifications#preferences_form');
     $auth->post('/notifications/preferences')->to('Notifications#update_preferences');
+
+    $auth->get('/settings/webhooks')->to('Settings#webhooks');
+    $auth->post('/settings/webhooks')->to('Settings#create_webhook');
+    $auth->post('/settings/webhooks/:id/delete')->to('Settings#delete_webhook');
 
     $auth->get('/targets/:id/report.txt')->to('Targets#report_txt');
 
@@ -452,12 +487,6 @@ sub startup ($self) {
 
     $admin->get('/import-targets')->to('Admin#import_targets_form');
     $admin->post('/import-targets')->to('Admin#import_targets');
-
-    $admin->get('/webhooks')->to('Webhooks#index');
-    $admin->post('/webhooks')->to('Webhooks#create');
-    $admin->post('/webhooks/:id')->to('Webhooks#update');
-    $admin->post('/webhooks/:id/delete')->to('Webhooks#delete');
-    $admin->get('/webhooks/:id/deliveries')->to('Webhooks#deliveries');
 
     $self->plugin('Minion::Admin', { route => $admin->any('/jobs') });
 

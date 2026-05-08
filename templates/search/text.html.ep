@@ -2,37 +2,68 @@
 % title 'Text Search — Dragline';
 % my $results = stash('results') // [];
 % my $query   = stash('query')   // '';
+% my $saved_queries = stash('saved_queries') // [];
 
 <div class="page-header">
   <h1>Text Search</h1>
 </div>
 
-<form method="get" action="/search/text" class="search-form">
-  <input type="text" name="q" value="<%= $query %>" placeholder="Search across targets, people, events, and content..." class="input-lg" style="width: 60%;">
-  <button type="submit" class="btn btn-primary">Search</button>
-</form>
+<div class="two-col">
+  <div class="col-main">
+    <form method="get" action="/search/text" class="search-form">
+      <input type="text" name="q" value="<%= $query %>" placeholder="Search across targets, people, events, and content..." class="input-lg" style="width: 60%;">
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
 
-% if (length($query)) {
-<form method="post" action="/saved-queries" class="form-inline" style="margin-top:0.5rem">
-  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
-  <input type="hidden" name="query_type" value="text">
-  <input type="hidden" name="query_text" value="<%= $query %>">
-  <input type="text" name="name" placeholder="Save as…" class="input-text" required>
-  <button type="submit" class="btn btn-sm">Save Query</button>
-</form>
-% }
-<p class="results-count"><%= scalar(@$results) %> results for "<%= $query %>"</p>
+    % if (length($query)) {
+    <form method="post" action="/saved-queries" class="form-inline" style="margin-top:0.5rem">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <input type="hidden" name="search_type" value="text">
+      <input type="hidden" name="query_text" value="<%= $query %>">
+      <input type="text" name="label" placeholder="Save as…" class="input-text" required>
+      <button type="submit" class="btn btn-sm">Save Query</button>
+    </form>
+    % }
 
-<div class="search-results">
-%   for my $r (@$results) {
-  <div class="search-result search-result-<%= $r->{type} %>">
-    <div class="result-header">
-      <span class="result-type badge"><%= $r->{type} %></span>
-      <span class="result-subtype"><%= $r->{subtype} %></span>
+    % if (length($query)) {
+    <p class="results-count"><%= scalar(@$results) %> results for "<%= $query %>"</p>
+
+    <div class="search-results">
+    %   for my $r (@$results) {
+      <div class="search-result search-result-<%= $r->{type} %>">
+        <div class="result-header">
+          <span class="result-type badge"><%= $r->{type} %></span>
+          <span class="result-subtype"><%= $r->{subtype} %></span>
+        </div>
+        <h3 class="result-title"><%= $r->{title} %></h3>
+        <p class="result-snippet"><%= $r->{snippet} %></p>
+        % if ($r->{type} eq 'content') {
+        <form method="post" action="/bookmarks" class="inline-form">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <input type="hidden" name="raw_content_id" value="<%= $r->{id} %>">
+          <button type="submit" class="btn btn-xs btn-secondary">Bookmark</button>
+        </form>
+        % }
+      </div>
+    %   }
     </div>
-    <h3 class="result-title"><%= $r->{title} %></h3>
-    <p class="result-snippet"><%= $r->{snippet} %></p>
+    % }
   </div>
-%   }
+
+  <div class="col-side">
+    <h2>Saved Queries</h2>
+    % if (!@$saved_queries) {
+    <p class="empty-state">No saved queries.</p>
+    % } else {
+    <ul class="list-plain">
+      % for my $sq (@$saved_queries) {
+      <li>
+        % my $url = $sq->{search_type} eq 'semantic' ? '/search' : '/search/text';
+        % $url .= '?q=' . $sq->{query_text};
+        <a href="<%= $url %>"><%= $sq->{label} %></a>
+      </li>
+      % }
+    </ul>
+    % }
+  </div>
 </div>
-% }

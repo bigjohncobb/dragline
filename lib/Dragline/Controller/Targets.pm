@@ -234,28 +234,18 @@ sub show ($c) {
         { Slice => {} }, $id,
     );
 
-    my $user = $c->current_user;
-    my $bookmark_collections = [];
-    if ($user) {
-        $bookmark_collections = $c->db->selectall_arrayref(
-            q{SELECT id, name FROM bookmark_collections WHERE user_id = ? ORDER BY name ASC},
-            { Slice => {} }, $user->{id},
-        );
-    }
-
     $c->stash(
-        target               => $target,
-        aliases              => $aliases,
-        domains              => $domains,
-        monitoring           => $monitoring,
-        people               => $people,
-        events               => $events,
-        raw_count            => $raw_count,
-        dossier              => $dossier,
-        org_structure        => $org_structure,
-        peers                => $peers,
-        all_targets          => $all_targets,
-        bookmark_collections => $bookmark_collections,
+        target        => $target,
+        aliases       => $aliases,
+        domains       => $domains,
+        monitoring    => $monitoring,
+        people        => $people,
+        events        => $events,
+        raw_count     => $raw_count,
+        dossier       => $dossier,
+        org_structure => $org_structure,
+        peers         => $peers,
+        all_targets   => $all_targets,
     );
     $c->render(template => 'targets/show');
 }

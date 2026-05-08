@@ -4,56 +4,82 @@
 % my $query = stash('query') // '';
 % my $target_id = stash('target_id') // '';
 % my $error = stash('error') // '';
+% my $saved_queries = stash('saved_queries') // [];
 
 <div class="page-header">
   <h1>Semantic Search</h1>
 </div>
 
-<form method="get" action="/search" class="search-form">
-  <input type="text" name="q" value="<%= $query %>" placeholder="Search by meaning, e.g. 'regulatory fines' or 'executive changes'…" class="input-search" style="flex:1">
-  <button type="submit" class="btn btn-primary">Search</button>
-</form>
+<div class="two-col">
+  <div class="col-main">
+    <form method="get" action="/search" class="search-form">
+      <input type="text" name="q" value="<%= $query %>" placeholder="Search by meaning, e.g. 'regulatory fines' or 'executive changes'…" class="input-search" style="flex:1">
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
 
-% if (length($query)) {
-<form method="post" action="/saved-queries" class="form-inline" style="margin-top:0.5rem">
-  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
-  <input type="hidden" name="query_type" value="semantic">
-  <input type="hidden" name="query_text" value="<%= $query %>">
-  <input type="hidden" name="target_id" value="<%= $target_id %>">
-  <input type="text" name="name" placeholder="Save as…" class="input-text" required>
-  <button type="submit" class="btn btn-sm">Save Query</button>
-</form>
-% }
-
-% if ($error) {
-<div class="flash flash-error"><%= $error %></div>
-% }
-
-% if (length($query) && !@$results) {
-<p class="empty-state">No results found for "<%= $query %>".</p>
-% } elsif (@$results) {
-<p class="results-meta"><%= scalar(@$results) %> results for "<%= $query %>"</p>
-
-<div class="search-results">
-% for my $r (@$results) {
-  <div class="search-result">
-    <div class="result-meta">
-      <a href="/targets/<%= $r->{target_id} %>"><%= $r->{target_name} %></a>
-      <span class="badge badge-source"><%= $r->{source_type} %></span>
-      % if ($r->{significance_tier}) {
-      <span class="badge">Tier <%= $r->{significance_tier} %></span>
-      % }
-      <span class="distance">Score: <%= sprintf('%.3f', 1 - $r->{distance}) %></span>
-    </div>
-    % if ($r->{source_url}) {
-    <div class="result-url"><a href="<%= $r->{source_url} %>" target="_blank"><%= $r->{source_title} // $r->{source_url} %></a></div>
+    % if (length($query)) {
+    <form method="post" action="/saved-queries" class="form-inline" style="margin-top:0.5rem">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <input type="hidden" name="search_type" value="semantic">
+      <input type="hidden" name="query_text" value="<%= $query %>">
+      <input type="text" name="label" placeholder="Save as…" class="input-text" required>
+      <button type="submit" class="btn btn-sm">Save Query</button>
+    </form>
     % }
-    <pre class="result-snippet"><%= $r->{snippet} %></pre>
-    <div class="result-footer">
-      <span><%= $r->{word_count} // 0 %> words</span>
-      <span><%= $r->{created_at} %></span>
+
+    % if ($error) {
+    <div class="flash flash-error"><%= $error %></div>
+    % }
+
+    % if (length($query) && !@$results) {
+    <p class="empty-state">No results found for "<%= $query %>".</p>
+    % } elsif (@$results) {
+    <p class="results-meta"><%= scalar(@$results) %> results for "<%= $query %>"</p>
+
+    <div class="search-results">
+    % for my $r (@$results) {
+      <div class="search-result">
+        <div class="result-meta">
+          <a href="/targets/<%= $r->{target_id} %>"><%= $r->{target_name} %></a>
+          <span class="badge badge-source"><%= $r->{source_type} %></span>
+          % if ($r->{significance_tier}) {
+          <span class="badge">Tier <%= $r->{significance_tier} %></span>
+          % }
+          <span class="distance">Score: <%= sprintf('%.3f', 1 - $r->{distance}) %></span>
+          <form method="post" action="/bookmarks" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <input type="hidden" name="raw_content_id" value="<%= $r->{id} %>">
+            <button type="submit" class="btn btn-xs btn-secondary">Bookmark</button>
+          </form>
+        </div>
+        % if ($r->{source_url}) {
+        <div class="result-url"><a href="<%= $r->{source_url} %>" target="_blank"><%= $r->{source_title} // $r->{source_url} %></a></div>
+        % }
+        <pre class="result-snippet"><%= $r->{snippet} %></pre>
+        <div class="result-footer">
+          <span><%= $r->{word_count} // 0 %> words</span>
+          <span><%= $r->{created_at} %></span>
+        </div>
+      </div>
+    % }
     </div>
+    % }
   </div>
-% }
+
+  <div class="col-side">
+    <h2>Saved Queries</h2>
+    % if (!@$saved_queries) {
+    <p class="empty-state">No saved queries.</p>
+    % } else {
+    <ul class="list-plain">
+      % for my $sq (@$saved_queries) {
+      <li>
+        % my $url = $sq->{search_type} eq 'semantic' ? '/search' : '/search/text';
+        % $url .= '?q=' . $sq->{query_text};
+        <a href="<%= $url %>"><%= $sq->{label} %></a>
+      </li>
+      % }
+    </ul>
+    % }
+  </div>
 </div>
-% }

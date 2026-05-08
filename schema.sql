@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS document_extractions (
     extracted_json  TEXT,
     model_used      TEXT,
     confidence      REAL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','complete','failed')),
     created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -802,111 +804,90 @@ BEGIN
     UPDATE adversarial_checks SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    raw_content_id TEXT NOT NULL REFERENCES raw_content(id) ON DELETE CASCADE,
+    notes          TEXT,
+    created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, raw_content_id)
+);
+
 CREATE TABLE IF NOT EXISTS bookmark_collections (
     id         TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name       TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+    UNIQUE(user_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS bookmarks (
-    id            TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS bookmark_collection_items (
     collection_id TEXT NOT NULL REFERENCES bookmark_collections(id) ON DELETE CASCADE,
-    target_id     TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-    notes         TEXT,
-    created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (collection_id, target_id)
+    bookmark_id   TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+    added_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(collection_id, bookmark_id)
 );
 
 CREATE TABLE IF NOT EXISTS saved_queries (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    query_type TEXT NOT NULL DEFAULT 'text'
-        CHECK (query_type IN ('text','semantic')),
-    query_text TEXT NOT NULL,
-    target_id  TEXT REFERENCES targets(id) ON DELETE SET NULL,
-    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    label       TEXT NOT NULL,
+    query_text  TEXT NOT NULL,
+    search_type TEXT NOT NULL CHECK(search_type IN ('text','semantic')),
+    created_at  DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS webhook_configs (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL,
-    url        TEXT NOT NULL,
-    secret     TEXT,
-    event_types TEXT NOT NULL DEFAULT '["*"]',
-    active     INTEGER NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
+    target_id   TEXT REFERENCES targets(id) ON DELETE CASCADE,
+    url         TEXT NOT NULL,
+    secret      TEXT,
+    event_types TEXT NOT NULL DEFAULT '[]',
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id                   TEXT PRIMARY KEY,
+    webhook_config_id    TEXT NOT NULL REFERENCES webhook_configs(id) ON DELETE CASCADE,
+    event_type           TEXT NOT NULL,
+    payload              TEXT NOT NULL,
+    attempt_count        INTEGER NOT NULL DEFAULT 0,
+    last_response_status INTEGER,
+    last_response_body   TEXT,
+    delivered_at         DATETIME,
+    last_error           TEXT,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS user_notifications (
     id              TEXT PRIMARY KEY,
-    webhook_id      TEXT NOT NULL REFERENCES webhook_configs(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    change_event_id TEXT REFERENCES change_events(id) ON DELETE CASCADE,
+    target_id       TEXT REFERENCES targets(id) ON DELETE CASCADE,
     event_type      TEXT NOT NULL,
-    payload         TEXT NOT NULL,
-    response_status INTEGER,
-    response_body   TEXT,
-    error_message   TEXT,
-    delivered_at    DATETIME,
+    message         TEXT NOT NULL,
+    is_read         INTEGER NOT NULL DEFAULT 0,
     created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS notification_preferences (
-    id            TEXT PRIMARY KEY,
     user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     event_type    TEXT NOT NULL,
-    email_enabled INTEGER NOT NULL DEFAULT 1,
-    web_enabled   INTEGER NOT NULL DEFAULT 1,
-    created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (user_id, event_type)
+    notify_in_app INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY(user_id, event_type)
 );
 
-CREATE TABLE IF NOT EXISTS user_notifications (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL,
-    subject    TEXT NOT NULL,
-    body       TEXT NOT NULL,
-    link_url   TEXT,
-    is_read    INTEGER NOT NULL DEFAULT 0,
-    read_at    DATETIME,
-    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_bookmark_collections_user ON bookmark_collections(user_id);
-CREATE INDEX IF NOT EXISTS idx_bookmarks_collection      ON bookmarks(collection_id);
-CREATE INDEX IF NOT EXISTS idx_bookmarks_target          ON bookmarks(target_id);
-CREATE INDEX IF NOT EXISTS idx_saved_queries_user        ON saved_queries(user_id);
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id);
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created ON webhook_deliveries(created_at);
-CREATE INDEX IF NOT EXISTS idx_notif_prefs_user          ON notification_preferences(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_notifications_user   ON user_notifications(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_notifications_read   ON user_notifications(is_read);
-CREATE INDEX IF NOT EXISTS idx_user_notifications_created ON user_notifications(created_at);
-
-CREATE TRIGGER IF NOT EXISTS trg_bookmark_collections_updated_at
-AFTER UPDATE ON bookmark_collections
-FOR EACH ROW
-BEGIN
-    UPDATE bookmark_collections SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_webhook_configs_updated_at
-AFTER UPDATE ON webhook_configs
-FOR EACH ROW
-BEGIN
-    UPDATE webhook_configs SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_notification_prefs_updated_at
-AFTER UPDATE ON notification_preferences
-FOR EACH ROW
-BEGIN
-    UPDATE notification_preferences SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
+CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id);
+CREATE INDEX IF NOT EXISTS idx_bookmark_collection_items_collection ON bookmark_collection_items(collection_id);
+CREATE INDEX IF NOT EXISTS idx_saved_queries_user ON saved_queries(user_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_configs_user ON webhook_configs(user_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_configs_target ON webhook_configs(target_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_config ON webhook_deliveries(webhook_config_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(delivered_at) WHERE delivered_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user_unread ON user_notifications(user_id, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_target ON user_notifications(target_id);
 
 INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('anthropic_api_key',             '',                       1, datetime('now')),

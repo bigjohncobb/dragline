@@ -1,6 +1,7 @@
 % layout 'default';
 % title 'Notification Preferences — Dragline';
-% my $prefs = stash('prefs') // [];
+% my $event_types = stash('event_types') // [];
+% my $pref_map = stash('pref_map') // {};
 
 <div class="page-header">
   <h1>Notification Preferences</h1>
@@ -14,22 +15,16 @@
     <thead>
       <tr>
         <th>Event Type</th>
-        <th>Web</th>
-        <th>Email</th>
+        <th>Notify in app</th>
       </tr>
     </thead>
     <tbody>
-      % my @types = qw(new_content updated_content gap_detected dossier_updated crawl_failed forge_sync discovery_complete);
-      % for my $type (@types) {
-      %   my $p = (grep { $_->{event_type} eq $type } @$prefs)[0] // {};
+      % for my $type (@$event_types) {
       <tr>
         <td><%= $type %></td>
         <td>
           <input type="hidden" name="event_type" value="<%= $type %>">
-          <input type="checkbox" name="web_enabled" value="<%= $type %>" <%= ($p->{web_enabled} // 1) ? 'checked' : '' %>>
-        </td>
-        <td>
-          <input type="checkbox" name="email_enabled" value="<%= $type %>" <%= ($p->{email_enabled} // 1) ? 'checked' : '' %>>
+          <input type="checkbox" name="notify_in_app" value="<%= $type %>" <%= ($pref_map->{$type} // 1) ? 'checked' : '' %>>
         </td>
       </tr>
       % }

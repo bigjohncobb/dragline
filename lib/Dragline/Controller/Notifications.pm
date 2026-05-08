@@ -16,21 +16,14 @@ sub index ($c) {
         { Slice => {} }, $user_id,
     );
 
-    my $unread_count = $c->db->selectrow_array(
-        q{SELECT COUNT(*) FROM user_notifications WHERE user_id = ? AND is_read = 0},
-        undef, $user_id,
-    );
-
-    $c->stash(
-        notifications => $notifications,
-        unread_count  => $unread_count,
-    );
+    $c->stash(notifications => $notifications);
     $c->render(template => 'notifications/index');
 }
 
 sub mark_read ($c) {
     unless ($c->validate_csrf) {
-        $c->render(json => { error => 'Invalid CSRF token' }, status => 403);
+        $c->flash(error => 'Invalid CSRF token');
+        $c->redirect_to('/notifications');
         return;
     }
 
@@ -39,42 +32,53 @@ sub mark_read ($c) {
 
     $c->db->do(
         q{UPDATE user_notifications
-          SET is_read = 1, read_at = datetime('now')
+          SET is_read = 1
           WHERE id = ? AND user_id = ?},
         undef, $id, $user_id,
     );
 
-    $c->render(json => { ok => 1 });
+    my $back = $c->req->headers->referer // '/notifications';
+    $c->redirect_to($back);
 }
 
 sub mark_all_read ($c) {
     unless ($c->validate_csrf) {
-        $c->render(json => { error => 'Invalid CSRF token' }, status => 403);
+        $c->flash(error => 'Invalid CSRF token');
+        $c->redirect_to('/notifications');
         return;
     }
 
     my $user_id = $c->current_user->{id};
     my $n = $c->db->do(
         q{UPDATE user_notifications
-          SET is_read = 1, read_at = datetime('now')
+          SET is_read = 1
           WHERE user_id = ? AND is_read = 0},
         undef, $user_id,
     );
 
-    $c->render(json => { ok => 1, count => ($n + 0) });
+    $c->flash(success => 'All notifications marked read.');
+    $c->redirect_to('/notifications');
 }
 
-sub preferences ($c) {
+sub preferences_form ($c) {
     my $user_id = $c->current_user->{id};
 
+    my @event_types = qw(new_content updated_content gap_detected dossier_updated crawl_failed forge_sync discovery_complete);
+
     my $prefs = $c->db->selectall_arrayref(
-        q{SELECT * FROM notification_preferences
-          WHERE user_id = ?
-          ORDER BY event_type ASC},
+        q{SELECT * FROM notification_preferences WHERE user_id = ?},
         { Slice => {} }, $user_id,
     );
 
-    $c->stash(prefs => $prefs);
+    my %pref_map;
+    for my $p (@$prefs) {
+        $pref_map{$p->{event_type}} = $p->{notify_in_app};
+    }
+
+    $c->stash(
+        event_types => \@event_types,
+        pref_map    => \%pref_map,
+    );
     $c->render(template => 'notifications/preferences');
 }
 
@@ -86,27 +90,18 @@ sub update_preferences ($c) {
 
     my $user_id = $c->current_user->{id};
     my @types = $c->param('event_type');
-    my @email = $c->param('email_enabled');
-    my @web   = $c->param('web_enabled');
-
-    my %email_map = map { $_ => 1 } @email;
-    my %web_map   = map { $_ => 1 } @web;
+    my @enabled = $c->param('notify_in_app');
+    my %enabled_map = map { $_ => 1 } @enabled;
 
     eval {
         $c->db->begin_work;
         for my $type (@types) {
             $c->db->do(
-                q{INSERT INTO notification_preferences
-                  (id, user_id, event_type, email_enabled, web_enabled, created_at, updated_at)
-                  VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                q{INSERT INTO notification_preferences (user_id, event_type, notify_in_app)
+                  VALUES (?, ?, ?)
                   ON CONFLICT(user_id, event_type) DO UPDATE SET
-                    email_enabled = excluded.email_enabled,
-                    web_enabled = excluded.web_enabled,
-                    updated_at = datetime('now')},
-                undef,
-                $c->new_uuid, $user_id, $type,
-                ($email_map{$type} ? 1 : 0),
-                ($web_map{$type}   ? 1 : 0),
+                    notify_in_app = excluded.notify_in_app},
+                undef, $user_id, $type, ($enabled_map{$type} ? 1 : 0),
             );
         }
         $c->db->commit;

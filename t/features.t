@@ -37,10 +37,66 @@ my $target_id = do {
     $tgt->{id};
 };
 
+# Insert raw content for bookmark tests
+my $raw_content_id = do {
+    my $id = 'raw-' . time();
+    db()->do(
+        q{INSERT INTO raw_content (id, target_id, source_type, content_text, content_hash, created_at)
+          VALUES (?, ?, 'crawl_static', 'Test content for bookmarking', 'abc123', datetime('now'))},
+        undef, $id, $target_id,
+    );
+    $id;
+};
+
 subtest 'Bookmarks' => sub {
     $t->get_ok('/bookmarks')->status_is(200);
     like($t->tx->res->body, qr/Bookmarks/, 'Bookmarks page loads');
 
+    $t->get_ok('/bookmarks')->status_is(200);
+    my $csrf = extract_csrf($t);
+    $t->post_ok('/bookmarks' => form => {
+        raw_content_id => $raw_content_id,
+        _csrf_token    => $csrf,
+    })->status_is(302);
+
+    my $bm = db()->selectrow_hashref(
+        q{SELECT id FROM bookmarks WHERE raw_content_id = ?},
+        undef, $raw_content_id,
+    );
+    ok($bm, 'Bookmark created');
+
+    $t->get_ok('/bookmarks')->status_is(200);
+    like($t->tx->res->body, qr/Untitled/, 'Bookmark appears on page');
+
+    # Duplicate should be silently ignored
+    $t->get_ok('/bookmarks')->status_is(200);
+    $csrf = extract_csrf($t);
+    $t->post_ok('/bookmarks' => form => {
+        raw_content_id => $raw_content_id,
+        _csrf_token    => $csrf,
+    })->status_is(302);
+
+    my ($count) = db()->selectrow_array(
+        q{SELECT COUNT(*) FROM bookmarks WHERE raw_content_id = ?},
+        undef, $raw_content_id,
+    );
+    is($count, 1, 'Duplicate bookmark ignored');
+
+    $t->get_ok('/bookmarks')->status_is(200);
+    $csrf = extract_csrf($t);
+    $t->post_ok("/bookmarks/$bm->{id}/delete" => form => {
+        _csrf_token => $csrf,
+    })->status_is(302);
+
+    $bm = db()->selectrow_hashref(
+        q{SELECT id FROM bookmarks WHERE raw_content_id = ?},
+        undef, $raw_content_id,
+    );
+    ok(!$bm, 'Bookmark deleted');
+};
+
+subtest 'Bookmark collections' => sub {
+    $t->get_ok('/bookmarks')->status_is(200);
     my $csrf = extract_csrf($t);
     $t->post_ok('/bookmarks/collections' => form => {
         name        => 'My Collection',
@@ -51,112 +107,66 @@ subtest 'Bookmarks' => sub {
         q{SELECT id FROM bookmark_collections WHERE name = 'My Collection'}
     );
     ok($col, 'Collection created');
-    my $col_id = $col->{id};
-
-    $t->get_ok("/bookmarks/collections/$col_id")->status_is(200);
-    like($t->tx->res->body, qr/My Collection/, 'Collection page loads');
-
-    $t->get_ok('/bookmarks')->status_is(200);
-    $csrf = extract_csrf($t);
-    $t->post_ok('/bookmarks' => form => {
-        collection_id => $col_id,
-        target_id     => $target_id,
-        _csrf_token   => $csrf,
-    })->status_is(302);
-
-    my $bm = db()->selectrow_hashref(
-        q{SELECT id FROM bookmarks WHERE collection_id = ? AND target_id = ?},
-        undef, $col_id, $target_id,
-    );
-    ok($bm, 'Bookmark created');
-
-    $t->get_ok("/bookmarks/collections/$col_id")->status_is(200);
-    like($t->tx->res->body, qr/Feature Target/, 'Bookmark appears on collection page');
-
-    $t->get_ok('/bookmarks')->status_is(200);
-    $csrf = extract_csrf($t);
-    $t->post_ok("/bookmarks/$bm->{id}/delete" => form => {
-        collection_id => $col_id,
-        _csrf_token   => $csrf,
-    })->status_is(302);
-
-    $bm = db()->selectrow_hashref(
-        q{SELECT id FROM bookmarks WHERE collection_id = ? AND target_id = ?},
-        undef, $col_id, $target_id,
-    );
-    ok(!$bm, 'Bookmark deleted');
-
-    $t->get_ok('/bookmarks')->status_is(200);
-    $csrf = extract_csrf($t);
-    $t->post_ok("/bookmarks/collections/$col_id/delete" => form => {
-        _csrf_token => $csrf,
-    })->status_is(302);
-
-    $col = db()->selectrow_hashref(
-        q{SELECT id FROM bookmark_collections WHERE name = 'My Collection'}
-    );
-    ok(!$col, 'Collection deleted');
 };
 
 subtest 'Saved queries' => sub {
+    $t->get_ok('/saved-queries')->status_is(200);
+    like($t->tx->res->body, qr/Saved Queries/, 'Saved queries page loads');
+
     $t->get_ok('/bookmarks')->status_is(200);
     my $csrf = extract_csrf($t);
     $t->post_ok('/saved-queries' => form => {
-        name        => 'Test Query',
-        query_type  => 'text',
+        label       => 'Test Query',
+        search_type => 'text',
         query_text  => 'test search',
-        target_id   => $target_id,
         _csrf_token => $csrf,
     })->status_is(302);
 
     my $sq = db()->selectrow_hashref(
-        q{SELECT id FROM saved_queries WHERE name = 'Test Query'}
+        q{SELECT id FROM saved_queries WHERE label = 'Test Query'}
     );
     ok($sq, 'Saved query created');
 
-    $t->get_ok('/bookmarks')->status_is(200);
-    like($t->tx->res->body, qr/Test Query/, 'Saved query appears on bookmarks page');
+    $t->get_ok('/search/text')->status_is(200);
+    like($t->tx->res->body, qr/Test Query/, 'Saved query appears on search page');
 
+    $t->get_ok('/bookmarks')->status_is(200);
     $csrf = extract_csrf($t);
     $t->post_ok("/saved-queries/$sq->{id}/delete" => form => {
         _csrf_token => $csrf,
     })->status_is(302);
 
     $sq = db()->selectrow_hashref(
-        q{SELECT id FROM saved_queries WHERE name = 'Test Query'}
+        q{SELECT id FROM saved_queries WHERE label = 'Test Query'}
     );
     ok(!$sq, 'Saved query deleted');
 };
 
-subtest 'Webhooks (admin)' => sub {
-    $t->get_ok('/admin/webhooks')->status_is(200);
-    like($t->tx->res->body, qr/Webhook Management/, 'Webhooks page loads');
+subtest 'Webhooks (settings)' => sub {
+    $t->get_ok('/settings/webhooks')->status_is(200);
+    like($t->tx->res->body, qr/Webhook Settings/, 'Webhooks settings page loads');
 
     my $csrf = extract_csrf($t);
-    $t->post_ok('/admin/webhooks' => form => {
-        name        => 'Test Hook',
+    $t->post_ok('/settings/webhooks' => form => {
         url         => 'http://example.com/hook',
         event_types => '["*"]',
         _csrf_token => $csrf,
     })->status_is(302);
 
     my $hook = db()->selectrow_hashref(
-        q{SELECT id FROM webhook_configs WHERE name = 'Test Hook'}
+        q{SELECT id FROM webhook_configs WHERE url = 'http://example.com/hook'}
     );
     ok($hook, 'Webhook created');
     my $hook_id = $hook->{id};
 
-    $t->get_ok("/admin/webhooks/$hook_id/deliveries")->status_is(200);
-    like($t->tx->res->body, qr/Test Hook/, 'Deliveries page loads');
-
-    $t->get_ok('/admin/webhooks')->status_is(200);
+    $t->get_ok('/settings/webhooks')->status_is(200);
     $csrf = extract_csrf($t);
-    $t->post_ok("/admin/webhooks/$hook_id/delete" => form => {
+    $t->post_ok("/settings/webhooks/$hook_id/delete" => form => {
         _csrf_token => $csrf,
     })->status_is(302);
 
     $hook = db()->selectrow_hashref(
-        q{SELECT id FROM webhook_configs WHERE name = 'Test Hook'}
+        q{SELECT id FROM webhook_configs WHERE url = 'http://example.com/hook'}
     );
     ok(!$hook, 'Webhook deleted');
 };
@@ -168,23 +178,22 @@ subtest 'Notifications' => sub {
     $t->get_ok('/notifications/preferences')->status_is(200);
     like($t->tx->res->body, qr/Notification Preferences/, 'Preferences page loads');
 
-    # Test dispatch_notification helper
+    # Test notify_users helper
     my $app = app();
-    my $user = db()->selectrow_hashref(q{SELECT id FROM users WHERE username_lower = 'admin'});
-    $app->dispatch_notification($user->{id}, 'new_content', 'Test Subject', 'Test body', '/targets/' . $target_id);
+    $app->notify_users($target_id, 'new_content', 'Test notification message');
 
     my $notif = db()->selectrow_hashref(
-        q{SELECT id FROM user_notifications WHERE subject = 'Test Subject'}
+        q{SELECT id FROM user_notifications WHERE message = 'Test notification message'}
     );
     ok($notif, 'Notification dispatched');
 
     $t->get_ok('/notifications')->status_is(200);
-    like($t->tx->res->body, qr/Test Subject/, 'Notification appears in list');
+    like($t->tx->res->body, qr/Test notification message/, 'Notification appears in list');
 
     my $csrf = extract_csrf($t);
     $t->post_ok("/notifications/$notif->{id}/read" => form => {
         _csrf_token => $csrf,
-    })->status_is(200);
+    })->status_is(302);
 
     my $updated = db()->selectrow_hashref(
         q{SELECT is_read FROM user_notifications WHERE id = ?},
@@ -196,7 +205,7 @@ subtest 'Notifications' => sub {
     $csrf = extract_csrf($t);
     $t->post_ok('/notifications/read-all' => form => {
         _csrf_token => $csrf,
-    })->status_is(200);
+    })->status_is(302);
 };
 
 subtest 'API intelligence endpoint' => sub {
