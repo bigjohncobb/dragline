@@ -1,0 +1,43 @@
+% layout 'default';
+% title 'Notifications — Dragline';
+% my $notifications = stash('notifications') // [];
+% my $unread_count = stash('unread_count') // 0;
+
+<div class="page-header">
+  <h1>Notifications</h1>
+  <div class="header-actions">
+    <form method="post" action="/notifications/read-all" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-sm">Mark all read</button>
+    </form>
+    <a href="/notifications/preferences" class="btn btn-sm">Preferences</a>
+  </div>
+</div>
+
+% if ($unread_count) {
+<p class="meta"><%= $unread_count %> unread</p>
+% }
+
+% if (!@$notifications) {
+<p class="empty-state">No notifications yet.</p>
+% } else {
+<div class="notification-list">
+  % for my $n (@$notifications) {
+  <div class="notification-item <%= $n->{is_read} ? 'read' : 'unread' %>">
+    % if (!$n->{is_read}) {
+    <form method="post" action="/notifications/<%= $n->{id} %>/read" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-sm">Mark read</button>
+    </form>
+    % }
+    <span class="badge"><%= $n->{event_type} %></span>
+    <span class="notification-subject"><%= $n->{subject} %></span>
+    <p class="notification-body"><%= $n->{body} %></p>
+    % if ($n->{link_url}) {
+    <a href="<%= $n->{link_url} %>">View →</a>
+    % }
+    <span class="meta"><%= $n->{created_at} %></span>
+  </div>
+  % }
+</div>
+% }

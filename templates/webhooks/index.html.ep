@@ -1,0 +1,54 @@
+% layout 'default';
+% title 'Webhook Management — Dragline';
+% my $configs = stash('configs') // [];
+
+<div class="page-header">
+  <h1>Webhook Management</h1>
+</div>
+
+<h2>Configurations</h2>
+% if (!@$configs) {
+<p class="empty-state">No webhook configurations yet.</p>
+% } else {
+<table class="table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>URL</th>
+      <th>Active</th>
+      <th>Deliveries</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    % for my $cfg (@$configs) {
+    <tr>
+      <td><%= $cfg->{name} %></td>
+      <td><%= $cfg->{url} %></td>
+      <td><%= $cfg->{active} ? 'Yes' : 'No' %></td>
+      <td><a href="/admin/webhooks/<%= $cfg->{id} %>/deliveries"><%= $cfg->{delivery_count} %></a></td>
+      <td>
+        <form method="post" action="/admin/webhooks/<%= $cfg->{id} %>/delete" class="inline-form" onsubmit="return confirm('Delete this webhook?')">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    % }
+  </tbody>
+</table>
+% }
+
+<h2>Add Webhook</h2>
+<form method="post" action="/admin/webhooks" class="form-stacked">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <label>Name</label>
+  <input type="text" name="name" required class="input-text">
+  <label>URL</label>
+  <input type="url" name="url" required class="input-text">
+  <label>Secret (optional)</label>
+  <input type="text" name="secret" class="input-text">
+  <label>Event Types (JSON array, default ["*"])</label>
+  <input type="text" name="event_types" value='["*"]' class="input-text">
+  <button type="submit" class="btn btn-primary">Add Webhook</button>
+</form>

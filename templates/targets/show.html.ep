@@ -2,6 +2,7 @@
 % my $t   = stash('target');
 % my $mon = stash('monitoring') // {};
 % my $dos = stash('dossier');
+% my $all_targets = stash('all_targets') // [];
 % title $t->{canonical_name} . ' — Dragline';
 % my $rel_time = sub {
 %   my ($ts) = @_; return '—' unless $ts;
@@ -30,6 +31,19 @@
     <a href="/targets/<%= $t->{id} %>/dossier" class="btn btn-secondary btn-sm">Dossier</a>
     <a href="/targets/<%= $t->{id} %>/edit" class="btn btn-secondary btn-sm">Edit</a>
     <a href="/targets/<%= $t->{id} %>/monitoring" class="btn btn-secondary btn-sm">Monitoring</a>
+    <a href="/targets/<%= $t->{id} %>/report.txt" class="btn btn-secondary btn-sm">Report</a>
+    <form method="post" action="/bookmarks" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <input type="hidden" name="target_id" value="<%= $t->{id} %>">
+      <select name="collection_id" class="select-sm" required>
+        <option value="">Bookmark to…</option>
+        % my $collections = stash('bookmark_collections') // [];
+        % for my $col (@$collections) {
+        <option value="<%= $col->{id} %>"><%= $col->{name} %></option>
+        % }
+      </select>
+      <button type="submit" class="btn btn-sm btn-secondary">Bookmark</button>
+    </form>
     % if ($t->{active}) {
     <form method="post" action="/targets/<%= $t->{id} %>/deactivate" class="inline-form">
       <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
@@ -85,6 +99,10 @@
   <form method="post" action="/targets/<%= $t->{id} %>/content/discover" class="inline-form">
     <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
     <button type="submit" class="btn btn-secondary btn-sm">Discover</button>
+  </form>
+  <form method="post" action="/targets/<%= $t->{id} %>/enrich-domains" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-secondary btn-sm">Enrich Domains</button>
   </form>
   <a href="/targets/<%= $t->{id} %>/dossier" class="btn btn-primary btn-sm">Dossier</a>
 </div>
@@ -191,5 +209,117 @@
   </table>
   % } else {
   <p class="empty-state-sm">No recent changes.</p>
+  % }
+</section>
+
+<!-- Org Structure -->
+<section class="detail-section">
+  <h2>Organisational Structure</h2>
+  % my $org = stash('org_structure') // [];
+  % if (@$org) {
+  <table class="data-table data-table-compact">
+    <thead><tr><th>Relationship</th><th>Parent</th><th>Child</th><th>Ownership</th><th></th></tr></thead>
+    <tbody>
+    % for my $o (@$org) {
+      <tr>
+        <td><%= $o->{relationship_type} %></td>
+        <td><a href="/targets/<%= $o->{parent_target_id} %>"><%= $o->{parent_name} %></a></td>
+        <td><a href="/targets/<%= $o->{child_target_id} %>"><%= $o->{child_name} %></a></td>
+        <td><%= defined $o->{percent_ownership} ? $o->{percent_ownership} . '%' : '—' %></td>
+        <td class="td-action">
+          <form method="post" action="/targets/<%= $t->{id} %>/org-structure/<%= $o->{id} %>/delete" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % } else {
+  <p class="empty-state-sm">No organisational relationships recorded.</p>
+  % }
+  % if (@$all_targets) {
+  <details class="add-form-collapsible">
+    <summary>Add relationship</summary>
+    <form method="post" action="/targets/<%= $t->{id} %>/org-structure" class="edit-form edit-form-compact">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <div class="field-row">
+        <select name="other_target_id" required class="select-sm">
+          <option value="">Select target…</option>
+          % for my $tgt (@$all_targets) {
+          <option value="<%= $tgt->{id} %>"><%= $tgt->{canonical_name} %></option>
+          % }
+        </select>
+        <select name="relationship_type" required class="select-sm">
+          <option value="subsidiary">Subsidiary</option>
+          <option value="parent">Parent</option>
+          <option value="owner">Owner</option>
+          <option value="affiliate">Affiliate</option>
+          <option value="branch">Branch</option>
+        </select>
+        <select name="direction" required class="select-sm">
+          <option value="child">Is child of this target</option>
+          <option value="parent">Is parent of this target</option>
+        </select>
+        <input type="number" name="percent_ownership" placeholder="%" class="input-sm" step="0.01" min="0" max="100">
+        <input type="text" name="notes" placeholder="Notes (optional)" class="input-sm">
+        <button type="submit" class="btn btn-sm btn-primary">Add</button>
+      </div>
+    </form>
+  </details>
+  % }
+</section>
+
+<!-- Peers -->
+<section class="detail-section">
+  <h2>Peer Relationships</h2>
+  % my $peer_list = stash('peers') // [];
+  % if (@$peer_list) {
+  <table class="data-table data-table-compact">
+    <thead><tr><th>Target A</th><th>Relationship</th><th>Target B</th><th></th></tr></thead>
+    <tbody>
+    % for my $pr (@$peer_list) {
+      <tr>
+        <td><a href="/targets/<%= $pr->{target_id_a} %>"><%= $pr->{target_a_name} %></a></td>
+        <td><%= $pr->{relationship_type} %></td>
+        <td><a href="/targets/<%= $pr->{target_id_b} %>"><%= $pr->{target_b_name} %></a></td>
+        <td class="td-action">
+          <form method="post" action="/targets/<%= $t->{id} %>/peers/<%= $pr->{id} %>/delete" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+    % }
+    </tbody>
+  </table>
+  % } else {
+  <p class="empty-state-sm">No peer relationships recorded.</p>
+  % }
+  % if (@$all_targets) {
+  <details class="add-form-collapsible">
+    <summary>Add peer relationship</summary>
+    <form method="post" action="/targets/<%= $t->{id} %>/peers" class="edit-form edit-form-compact">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <div class="field-row">
+        <select name="other_target_id" required class="select-sm">
+          <option value="">Select target…</option>
+          % for my $tgt (@$all_targets) {
+          <option value="<%= $tgt->{id} %>"><%= $tgt->{canonical_name} %></option>
+          % }
+        </select>
+        <select name="relationship_type" required class="select-sm">
+          <option value="competitor">Competitor</option>
+          <option value="partner">Partner</option>
+          <option value="supplier">Supplier</option>
+          <option value="client">Client</option>
+          <option value="peer">Peer</option>
+        </select>
+        <input type="text" name="notes" placeholder="Notes (optional)" class="input-sm">
+        <button type="submit" class="btn btn-sm btn-primary">Add</button>
+      </div>
+    </form>
+  </details>
   % }
 </section>

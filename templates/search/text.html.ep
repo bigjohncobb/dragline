@@ -13,6 +13,14 @@
 </form>
 
 % if (length($query)) {
+<form method="post" action="/saved-queries" class="form-inline" style="margin-top:0.5rem">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <input type="hidden" name="query_type" value="text">
+  <input type="hidden" name="query_text" value="<%= $query %>">
+  <input type="text" name="name" placeholder="Save as…" class="input-text" required>
+  <button type="submit" class="btn btn-sm">Save Query</button>
+</form>
+% }
 <p class="results-count"><%= scalar(@$results) %> results for "<%= $query %>"</p>
 
 <div class="search-results">

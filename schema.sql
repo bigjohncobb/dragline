@@ -400,18 +400,20 @@ CREATE TABLE IF NOT EXISTS monitor_deltas (
 );
 
 CREATE TABLE IF NOT EXISTS event_timeline (
-    id              TEXT PRIMARY KEY,
-    target_id       TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-    event_date      DATE,
-    event_type      TEXT NOT NULL DEFAULT 'general'
+    id                TEXT PRIMARY KEY,
+    target_id         TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    event_date        DATE,
+    event_type        TEXT NOT NULL DEFAULT 'general'
         CHECK (event_type IN ('general','corporate','legal','financial',
                                'personnel','regulatory','media','sanctions')),
-    description     TEXT NOT NULL,
-    source_url      TEXT,
-    source_section  TEXT,
-    confidence      TEXT NOT NULL DEFAULT 'medium'
+    description       TEXT NOT NULL,
+    description_hash  TEXT,
+    source_url        TEXT,
+    source_section    TEXT,
+    confidence        TEXT NOT NULL DEFAULT 'medium'
         CHECK (confidence IN ('low','medium','high')),
-    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+    created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (target_id, event_date, description_hash)
 );
 
 CREATE TABLE IF NOT EXISTS dossier_versions (
@@ -439,7 +441,8 @@ CREATE TABLE IF NOT EXISTS sanctions_matches (
     status          TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending','confirmed','dismissed')),
     created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (target_id, person_id, entity_name, matched_name, dataset)
 );
 
 CREATE TABLE IF NOT EXISTS domain_whois (
@@ -455,18 +458,20 @@ CREATE TABLE IF NOT EXISTS domain_whois (
     name_servers    TEXT,
     raw_json        TEXT,
     fetched_at      DATETIME,
-    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (domain, target_id)
 );
 
 CREATE TABLE IF NOT EXISTS domain_dns_records (
-    id          TEXT PRIMARY KEY,
-    domain      TEXT NOT NULL,
-    target_id   TEXT REFERENCES targets(id) ON DELETE CASCADE,
-    record_type TEXT NOT NULL,
+    id           TEXT PRIMARY KEY,
+    domain       TEXT NOT NULL,
+    target_id    TEXT REFERENCES targets(id) ON DELETE CASCADE,
+    record_type  TEXT NOT NULL,
     record_value TEXT NOT NULL,
-    ttl         INTEGER,
-    fetched_at  DATETIME,
-    created_at  DATETIME NOT NULL DEFAULT (datetime('now'))
+    ttl          INTEGER,
+    fetched_at   DATETIME,
+    created_at   DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (domain, target_id, record_type, record_value)
 );
 
 -- ============================================================
@@ -797,6 +802,112 @@ BEGIN
     UPDATE adversarial_checks SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
+CREATE TABLE IF NOT EXISTS bookmark_collections (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id            TEXT PRIMARY KEY,
+    collection_id TEXT NOT NULL REFERENCES bookmark_collections(id) ON DELETE CASCADE,
+    target_id     TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    notes         TEXT,
+    created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (collection_id, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS saved_queries (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    query_type TEXT NOT NULL DEFAULT 'text'
+        CHECK (query_type IN ('text','semantic')),
+    query_text TEXT NOT NULL,
+    target_id  TEXT REFERENCES targets(id) ON DELETE SET NULL,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS webhook_configs (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    secret     TEXT,
+    event_types TEXT NOT NULL DEFAULT '["*"]',
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id              TEXT PRIMARY KEY,
+    webhook_id      TEXT NOT NULL REFERENCES webhook_configs(id) ON DELETE CASCADE,
+    event_type      TEXT NOT NULL,
+    payload         TEXT NOT NULL,
+    response_status INTEGER,
+    response_body   TEXT,
+    error_message   TEXT,
+    delivered_at    DATETIME,
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type    TEXT NOT NULL,
+    email_enabled INTEGER NOT NULL DEFAULT 1,
+    web_enabled   INTEGER NOT NULL DEFAULT 1,
+    created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (user_id, event_type)
+);
+
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    subject    TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    link_url   TEXT,
+    is_read    INTEGER NOT NULL DEFAULT 0,
+    read_at    DATETIME,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookmark_collections_user ON bookmark_collections(user_id);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_collection      ON bookmarks(collection_id);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_target          ON bookmarks(target_id);
+CREATE INDEX IF NOT EXISTS idx_saved_queries_user        ON saved_queries(user_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created ON webhook_deliveries(created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_prefs_user          ON notification_preferences(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user   ON user_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_read   ON user_notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_created ON user_notifications(created_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_bookmark_collections_updated_at
+AFTER UPDATE ON bookmark_collections
+FOR EACH ROW
+BEGIN
+    UPDATE bookmark_collections SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_webhook_configs_updated_at
+AFTER UPDATE ON webhook_configs
+FOR EACH ROW
+BEGIN
+    UPDATE webhook_configs SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_notification_prefs_updated_at
+AFTER UPDATE ON notification_preferences
+FOR EACH ROW
+BEGIN
+    UPDATE notification_preferences SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
 INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('anthropic_api_key',             '',                       1, datetime('now')),
     ('qwen_api_key',                  '',                       1, datetime('now')),
@@ -820,3 +931,6 @@ INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('backup_s3_access_key',          '',                       1, datetime('now')),
     ('backup_s3_secret_key',          '',                       1, datetime('now')),
     ('backup_retention_days',         '30',                     0, datetime('now'));
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_deltas_unique ON monitor_deltas(monitor_run_id, delta_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_job_steps_scope ON job_steps(scope_type, scope_id);

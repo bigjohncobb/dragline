@@ -19,6 +19,8 @@
     <li><a href="/people">People</a></li>
     <li><a href="/projects">Projects</a></li>
     <li><a href="/search">Search</a></li>
+    <li><a href="/bookmarks">Bookmarks</a></li>
+    <li><a href="/notifications">Notifications</a></li>
     % if (current_user && current_user->{role} eq 'admin') {
     <li><a href="/admin/health">Admin</a></li>
     % }

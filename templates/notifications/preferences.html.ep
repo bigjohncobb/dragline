@@ -1,0 +1,40 @@
+% layout 'default';
+% title 'Notification Preferences — Dragline';
+% my $prefs = stash('prefs') // [];
+
+<div class="page-header">
+  <h1>Notification Preferences</h1>
+  <a href="/notifications" class="btn btn-sm">← Notifications</a>
+</div>
+
+<form method="post" action="/notifications/preferences" class="form-stacked">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Event Type</th>
+        <th>Web</th>
+        <th>Email</th>
+      </tr>
+    </thead>
+    <tbody>
+      % my @types = qw(new_content updated_content gap_detected dossier_updated crawl_failed forge_sync discovery_complete);
+      % for my $type (@types) {
+      %   my $p = (grep { $_->{event_type} eq $type } @$prefs)[0] // {};
+      <tr>
+        <td><%= $type %></td>
+        <td>
+          <input type="hidden" name="event_type" value="<%= $type %>">
+          <input type="checkbox" name="web_enabled" value="<%= $type %>" <%= ($p->{web_enabled} // 1) ? 'checked' : '' %>>
+        </td>
+        <td>
+          <input type="checkbox" name="email_enabled" value="<%= $type %>" <%= ($p->{email_enabled} // 1) ? 'checked' : '' %>>
+        </td>
+      </tr>
+      % }
+    </tbody>
+  </table>
+
+  <button type="submit" class="btn btn-primary">Save Preferences</button>
+</form>

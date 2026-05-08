@@ -1,0 +1,80 @@
+% layout 'default';
+% title 'Bookmarks — Dragline';
+% my $collections = stash('collections') // [];
+% my $saved_queries = stash('saved_queries') // [];
+
+<div class="page-header">
+  <h1>Bookmarks &amp; Saved Queries</h1>
+</div>
+
+<div class="two-col">
+  <div class="col-main">
+    <h2>Collections</h2>
+    % if (!@$collections) {
+    <p class="empty-state">No bookmark collections yet.</p>
+    % } else {
+    <div class="card-grid">
+      % for my $col (@$collections) {
+      <div class="card">
+        <a href="/bookmarks/collections/<%= $col->{id} %>" class="card-title"><%= $col->{name} %></a>
+        <span class="meta"><%= $col->{bookmark_count} %> bookmarks</span>
+        <form method="post" action="/bookmarks/collections/<%= $col->{id} %>/delete" class="inline-form">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this collection?')">Delete</button>
+        </form>
+      </div>
+      % }
+    </div>
+    % }
+
+    <h3>Create Collection</h3>
+    <form method="post" action="/bookmarks/collections" class="form-inline">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <input type="text" name="name" placeholder="Collection name" required class="input-text">
+      <button type="submit" class="btn btn-primary">Create</button>
+    </form>
+  </div>
+
+  <div class="col-side">
+    <h2>Saved Queries</h2>
+    % if (!@$saved_queries) {
+    <p class="empty-state">No saved queries yet.</p>
+    % } else {
+    <ul class="list-plain">
+      % for my $sq (@$saved_queries) {
+      <li>
+        % my $url = $sq->{query_type} eq 'semantic' ? '/search' : '/search/text';
+        % $url .= '?q=' . $sq->{query_text};
+        % $url .= '&target_id=' . $sq->{target_id} if $sq->{target_id};
+        <a href="<%= $url %>"><%= $sq->{name} %></a>
+        <span class="badge"><%= $sq->{query_type} %></span>
+        % if ($sq->{target_name}) {
+        <span class="meta"><%= $sq->{target_name} %></span>
+        % }
+        <form method="post" action="/saved-queries/<%= $sq->{id} %>/delete" class="inline-form">
+          <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+          <button type="submit" class="btn btn-sm btn-danger">×</button>
+        </form>
+      </li>
+      % }
+    </ul>
+    % }
+
+    <h3>Save Query</h3>
+    <form method="post" action="/saved-queries" class="form-stacked">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <label>Name</label>
+      <input type="text" name="name" required class="input-text">
+      <label>Type</label>
+      <select name="query_type" class="input-select">
+        <option value="text">Text</option>
+        <option value="semantic">Semantic</option>
+      </select>
+      <label>Query</label>
+      <input type="text" name="query_text" required class="input-text">
+      <label>Target (optional)</label>
+      <input type="text" name="target_id" placeholder="Target UUID" class="input-text">
+      <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+  </div>
+</div>

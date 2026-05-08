@@ -1,0 +1,36 @@
+% layout 'default';
+% title 'Webhook Deliveries — Dragline';
+% my $config = stash('config');
+% my $deliveries = stash('deliveries') // [];
+
+<div class="page-header">
+  <h1>Deliveries: <%= $config->{name} %></h1>
+  <a href="/admin/webhooks" class="btn btn-sm">← Webhooks</a>
+</div>
+
+<p><strong>URL:</strong> <%= $config->{url} %></p>
+
+% if (!@$deliveries) {
+<p class="empty-state">No deliveries yet.</p>
+% } else {
+<table class="table">
+  <thead>
+    <tr>
+      <th>Event</th>
+      <th>Status</th>
+      <th>Error</th>
+      <th>Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    % for my $d (@$deliveries) {
+    <tr>
+      <td><%= $d->{event_type} %></td>
+      <td><%= $d->{response_status} // '—' %></td>
+      <td><%= $d->{error_message} // '' %></td>
+      <td><%= $d->{created_at} %></td>
+    </tr>
+    % }
+  </tbody>
+</table>
+% }

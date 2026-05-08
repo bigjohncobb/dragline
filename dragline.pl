@@ -68,6 +68,7 @@ sub startup ($self) {
     $self->minion->add_task(doc_intelligence => 'Dragline::Job::DocIntelligence');
     $self->minion->add_task(adversarial_check => 'Dragline::Job::AdversarialCheck');
     $self->minion->add_task(backup => 'Dragline::Job::Backup');
+    $self->minion->add_task(webhook_deliver => 'Dragline::Job::WebhookDeliver');
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
@@ -263,6 +264,45 @@ sub startup ($self) {
         return ($ENV{DRAGLINE_AIRGAP} // '0') eq '1' ? 1 : 0;
     });
 
+    $self->helper(dispatch_webhook => sub ($c, $event_type, $payload) {
+        eval {
+            my $configs = $c->db->selectall_arrayref(
+                q{SELECT id FROM webhook_configs WHERE active = 1},
+                { Slice => {} },
+            );
+            for my $cfg (@$configs) {
+                $c->minion->enqueue(webhook_deliver => [{
+                    webhook_id => $cfg->{id},
+                    event_type => $event_type,
+                    payload    => $payload,
+                }], { attempts => 3 });
+            }
+        };
+        $c->app->log->error("dispatch_webhook failed: $@") if $@;
+    });
+
+    $self->helper(dispatch_notification => sub ($c, $user_id, $event_type, $subject, $body, $link_url = undef) {
+        eval {
+            my $pref = $c->db->selectrow_hashref(
+                q{SELECT web_enabled FROM notification_preferences
+                  WHERE user_id = ? AND event_type = ?},
+                undef, $user_id, $event_type,
+            );
+            # Default to enabled if no preference set
+            my $web_enabled = $pref ? $pref->{web_enabled} : 1;
+            return unless $web_enabled;
+
+            my $id = $c->new_uuid;
+            $c->db->do(
+                q{INSERT INTO user_notifications
+                  (id, user_id, event_type, subject, body, link_url, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, datetime('now'))},
+                undef, $id, $user_id, $event_type, $subject, $body, $link_url,
+            );
+        };
+        $c->app->log->error("dispatch_notification failed: $@") if $@;
+    });
+
     # ------------------------------------------------------------------ #
     # Sessions                                                             #
     # ------------------------------------------------------------------ #
@@ -373,6 +413,23 @@ sub startup ($self) {
     $auth->post('/people/:id/connections')->to('People#add_connection');
     $auth->post('/people/:id/connections/:conn_id/delete')->to('People#delete_connection');
 
+    $auth->get('/bookmarks')->to('Bookmarks#index');
+    $auth->post('/bookmarks/collections')->to('Bookmarks#create_collection');
+    $auth->post('/bookmarks/collections/:id/delete')->to('Bookmarks#delete_collection');
+    $auth->get('/bookmarks/collections/:id')->to('Bookmarks#show_collection');
+    $auth->post('/bookmarks')->to('Bookmarks#add_bookmark');
+    $auth->post('/bookmarks/:bookmark_id/delete')->to('Bookmarks#delete_bookmark');
+    $auth->post('/saved-queries')->to('Bookmarks#create_saved_query');
+    $auth->post('/saved-queries/:id/delete')->to('Bookmarks#delete_saved_query');
+
+    $auth->get('/notifications')->to('Notifications#index');
+    $auth->post('/notifications/:id/read')->to('Notifications#mark_read');
+    $auth->post('/notifications/read-all')->to('Notifications#mark_all_read');
+    $auth->get('/notifications/preferences')->to('Notifications#preferences');
+    $auth->post('/notifications/preferences')->to('Notifications#update_preferences');
+
+    $auth->get('/targets/:id/report.txt')->to('Targets#report_txt');
+
     # Admin routes
     my $admin = $r->under('/admin')->to(cb => sub ($c) {
         return 0 unless $c->require_login;
@@ -395,6 +452,12 @@ sub startup ($self) {
 
     $admin->get('/import-targets')->to('Admin#import_targets_form');
     $admin->post('/import-targets')->to('Admin#import_targets');
+
+    $admin->get('/webhooks')->to('Webhooks#index');
+    $admin->post('/webhooks')->to('Webhooks#create');
+    $admin->post('/webhooks/:id')->to('Webhooks#update');
+    $admin->post('/webhooks/:id/delete')->to('Webhooks#delete');
+    $admin->get('/webhooks/:id/deliveries')->to('Webhooks#deliveries');
 
     $self->plugin('Minion::Admin', { route => $admin->any('/jobs') });
 
@@ -424,6 +487,7 @@ sub startup ($self) {
     $api->post('/targets/:id/content/upload')->to('Api#upload_content');
     $api->post('/targets')->to('Api#create_target');
     $api->post('/people')->to('Api#create_person');
+    $api->get('/targets/:id/intelligence')->to('Api#intelligence');
 
     # Custom error pages
     $self->hook(before_render => sub ($c, $args) {

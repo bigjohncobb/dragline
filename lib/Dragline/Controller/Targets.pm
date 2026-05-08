@@ -5,6 +5,8 @@ use utf8;
 
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
+use Scalar::Util qw(looks_like_number);
+
 sub index ($c) {
     my $search = $c->param('search') // '';
     $search =~ s/^\s+|\s+$//g;
@@ -207,15 +209,53 @@ sub show ($c) {
         q{SELECT * FROM dossiers WHERE target_id = ?}, undef, $id,
     );
 
+    my $org_structure = $c->db->selectall_arrayref(
+        q{SELECT os.*, pa.canonical_name AS parent_name, ch.canonical_name AS child_name
+          FROM org_structure os
+          LEFT JOIN targets pa ON pa.id = os.parent_target_id
+          LEFT JOIN targets ch ON ch.id = os.child_target_id
+          WHERE os.parent_target_id = ? OR os.child_target_id = ?
+          ORDER BY os.created_at DESC},
+        { Slice => {} }, $id, $id,
+    );
+
+    my $peers = $c->db->selectall_arrayref(
+        q{SELECT pr.*, ta.canonical_name AS target_a_name, tb.canonical_name AS target_b_name
+          FROM peer_relationships pr
+          JOIN targets ta ON ta.id = pr.target_id_a
+          JOIN targets tb ON tb.id = pr.target_id_b
+          WHERE pr.target_id_a = ? OR pr.target_id_b = ?
+          ORDER BY pr.created_at DESC},
+        { Slice => {} }, $id, $id,
+    );
+
+    my $all_targets = $c->db->selectall_arrayref(
+        q{SELECT id, canonical_name FROM targets WHERE active = 1 AND id != ? ORDER BY canonical_name ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $user = $c->current_user;
+    my $bookmark_collections = [];
+    if ($user) {
+        $bookmark_collections = $c->db->selectall_arrayref(
+            q{SELECT id, name FROM bookmark_collections WHERE user_id = ? ORDER BY name ASC},
+            { Slice => {} }, $user->{id},
+        );
+    }
+
     $c->stash(
-        target     => $target,
-        aliases    => $aliases,
-        domains    => $domains,
-        monitoring => $monitoring,
-        people     => $people,
-        events     => $events,
-        raw_count  => $raw_count,
-        dossier    => $dossier,
+        target               => $target,
+        aliases              => $aliases,
+        domains              => $domains,
+        monitoring           => $monitoring,
+        people               => $people,
+        events               => $events,
+        raw_count            => $raw_count,
+        dossier              => $dossier,
+        org_structure        => $org_structure,
+        peers                => $peers,
+        all_targets          => $all_targets,
+        bookmark_collections => $bookmark_collections,
     );
     $c->render(template => 'targets/show');
 }
@@ -675,6 +715,327 @@ sub update_monitoring ($c) {
     });
     $c->flash(success => 'Monitoring settings updated.');
     $c->redirect_to("/targets/$id");
+}
+
+sub enrich_domains ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('expensive')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id'));
+    }
+
+    my $id = $c->param('id');
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT * FROM targets WHERE id = ?}, undef, $id,
+    );
+    unless ($target) {
+        $c->reply->not_found;
+        return;
+    }
+
+    $c->minion->enqueue(domain_enrich => [{ target_id => $id }]);
+    $c->log_audit('enrich_domains', 'target', $id);
+    $c->flash(success => 'Domain enrichment queued.');
+    $c->redirect_to("/targets/$id");
+}
+
+sub add_org_structure ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id'));
+    }
+
+    my $id = $c->param('id');
+    my $other_id = $c->param('other_target_id') // '';
+    my $rel_type = $c->param('relationship_type') // '';
+    my $direction = $c->param('direction') // 'child'; # child means other is child of id
+
+    unless (length($other_id) && length($rel_type)) {
+        $c->flash(error => 'Target and relationship type are required.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    my $parent_id = ($direction eq 'child') ? $id : $other_id;
+    my $child_id  = ($direction eq 'child') ? $other_id : $id;
+
+    my $existing = $c->db->selectrow_array(
+        q{SELECT 1 FROM org_structure WHERE parent_target_id = ? AND child_target_id = ? AND relationship_type = ?},
+        undef, $parent_id, $child_id, $rel_type,
+    );
+    if ($existing) {
+        $c->flash(error => 'That relationship already exists.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    my $rel_id = $c->new_uuid;
+    my $pct = $c->param('percent_ownership');
+    $pct = looks_like_number($pct) ? $pct : undef;
+    my $notes = $c->param('notes') || undef;
+
+    eval {
+        $c->db->do(
+            q{INSERT INTO org_structure (id, parent_target_id, child_target_id, relationship_type, percent_ownership, notes, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))},
+            undef, $rel_id, $parent_id, $child_id, $rel_type, $pct, $notes,
+        );
+    };
+    if ($@) {
+        $c->flash(error => 'Failed to add organisational relationship.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    $c->log_audit('add_org_structure', 'target', $id, { other_target_id => $other_id, relationship_type => $rel_type });
+    $c->flash(success => 'Organisational relationship added.');
+    $c->redirect_to("/targets/$id");
+}
+
+sub delete_org_structure ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $id     = $c->param('id');
+    my $rel_id = $c->param('rel_id');
+    $c->db->do(
+        q{DELETE FROM org_structure WHERE id = ?},
+        undef, $rel_id,
+    );
+    $c->log_audit('delete_org_structure', 'target', $id, { rel_id => $rel_id });
+    $c->flash(success => 'Organisational relationship removed.');
+    $c->redirect_to("/targets/$id");
+}
+
+sub add_peer ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id'));
+    }
+
+    my $id = $c->param('id');
+    my $other_id = $c->param('other_target_id') // '';
+    my $rel_type = $c->param('relationship_type') // '';
+
+    unless (length($other_id)) {
+        $c->flash(error => 'Please select the other target.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    my @valid = qw(competitor partner supplier client peer);
+    unless (grep { $_ eq $rel_type } @valid) {
+        $c->flash(error => 'Invalid relationship type.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    my ($id_a, $id_b) = ($id lt $other_id) ? ($id, $other_id) : ($other_id, $id);
+
+    my $existing = $c->db->selectrow_array(
+        q{SELECT 1 FROM peer_relationships WHERE target_id_a = ? AND target_id_b = ? AND relationship_type = ?},
+        undef, $id_a, $id_b, $rel_type,
+    );
+    if ($existing) {
+        $c->flash(error => 'That peer relationship already exists.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    my $rel_id = $c->new_uuid;
+    my $notes = $c->param('notes') || undef;
+
+    eval {
+        $c->db->do(
+            q{INSERT INTO peer_relationships (id, target_id_a, target_id_b, relationship_type, notes, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))},
+            undef, $rel_id, $id_a, $id_b, $rel_type, $notes,
+        );
+    };
+    if ($@) {
+        $c->flash(error => 'Failed to add peer relationship.');
+        return $c->redirect_to("/targets/$id");
+    }
+
+    $c->log_audit('add_peer', 'target', $id, { other_target_id => $other_id, relationship_type => $rel_type });
+    $c->flash(success => 'Peer relationship added.');
+    $c->redirect_to("/targets/$id");
+}
+
+sub delete_peer ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $id     = $c->param('id');
+    my $rel_id = $c->param('rel_id');
+    $c->db->do(
+        q{DELETE FROM peer_relationships WHERE id = ?},
+        undef, $rel_id,
+    );
+    $c->log_audit('delete_peer', 'target', $id, { rel_id => $rel_id });
+    $c->flash(success => 'Peer relationship removed.');
+    $c->redirect_to("/targets/$id");
+}
+
+sub report_txt ($c) {
+    my $id = $c->param('id');
+
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT t.*, p.name AS project_name
+          FROM targets t
+          JOIN projects p ON p.id = t.project_id
+          WHERE t.id = ? AND t.active = 1},
+        undef, $id,
+    );
+    unless ($target) {
+        $c->reply->not_found;
+        return;
+    }
+
+    my $aliases = $c->db->selectall_arrayref(
+        q{SELECT alias FROM target_aliases WHERE target_id = ? ORDER BY alias ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $domains = $c->db->selectall_arrayref(
+        q{SELECT domain, is_primary FROM target_domains WHERE target_id = ? ORDER BY is_primary DESC, domain ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $people = $c->db->selectall_arrayref(
+        q{SELECT pr.title, p.canonical_name AS person_name
+          FROM person_roles pr
+          JOIN people p ON p.id = pr.person_id
+          WHERE pr.target_id = ? AND pr.is_current = 1
+          ORDER BY p.canonical_name ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $events = $c->db->selectall_arrayref(
+        q{SELECT event_date, event_type, description
+          FROM event_timeline
+          WHERE target_id = ?
+          ORDER BY event_date DESC
+          LIMIT 50},
+        { Slice => {} }, $id,
+    );
+
+    my $content = $c->db->selectall_arrayref(
+        q{SELECT source_type, source_url, source_title, content_text, significance_tier, created_at
+          FROM raw_content
+          WHERE target_id = ?
+          ORDER BY created_at DESC
+          LIMIT 20},
+        { Slice => {} }, $id,
+    );
+
+    my $dossier = $c->db->selectrow_hashref(
+        q{SELECT * FROM dossiers WHERE target_id = ? AND status = 'current'},
+        undef, $id,
+    );
+
+    my $dossier_sections = [];
+    if ($dossier) {
+        $dossier_sections = $c->db->selectall_arrayref(
+            q{SELECT section_name, content
+              FROM dossier_sections
+              WHERE dossier_id = ?
+              ORDER BY section_number ASC},
+            { Slice => {} }, $dossier->{id},
+    );
+    }
+
+    my $report = _build_report($target, $aliases, $domains, $people, $events, $content, $dossier_sections);
+
+    $c->res->headers->content_type('text/plain; charset=utf-8');
+    $c->res->headers->content_disposition("attachment; filename=\"$target->{canonical_name}-report.txt\"");
+    $c->render(text => $report);
+}
+
+sub _build_report ($target, $aliases, $domains, $people, $events, $content, $dossier_sections) {
+    my $r = '';
+    $r .= "INTELLIGENCE REPORT\n";
+    $r .= '=' x 60 . "\n\n";
+    $r .= "Target:    $target->{canonical_name}\n";
+    $r .= "Type:      $target->{entity_type}\n";
+    $r .= "Project:   $target->{project_name}\n";
+    $r .= "Country:   " . ($target->{country} // '—') . "\n";
+    $r .= "Domain:    " . ($target->{primary_domain} // '—') . "\n";
+    $r .= "\n";
+
+    if (@$aliases) {
+        $r .= "ALIASES\n";
+        $r .= '-' x 40 . "\n";
+        $r .= join(', ', map { $_->{alias} } @$aliases) . "\n\n";
+    }
+
+    if (@$domains) {
+        $r .= "DOMAINS\n";
+        $r .= '-' x 40 . "\n";
+        for my $d (@$domains) {
+            $r .= ($d->{is_primary} ? '* ' : '  ') . $d->{domain} . "\n";
+        }
+        $r .= "\n";
+    }
+
+    if (@$people) {
+        $r .= "PEOPLE\n";
+        $r .= '-' x 40 . "\n";
+        for my $p (@$people) {
+            $r .= "  $p->{person_name} — $p->{title}\n";
+        }
+        $r .= "\n";
+    }
+
+    if (@$dossier_sections) {
+        $r .= "DOSSIER\n";
+        $r .= '=' x 60 . "\n\n";
+        for my $s (@$dossier_sections) {
+            $r .= uc($s->{section_name}) . "\n";
+            $r .= '-' x 40 . "\n";
+            $r .= ($s->{content} // '') . "\n\n";
+        }
+    }
+
+    if (@$events) {
+        $r .= "EVENT TIMELINE\n";
+        $r .= '=' x 60 . "\n\n";
+        for my $e (@$events) {
+            $r .= ($e->{event_date} // '—') . " [$e->{event_type}] $e->{description}\n";
+        }
+        $r .= "\n";
+    }
+
+    if (@$content) {
+        $r .= "RECENT CONTENT\n";
+        $r .= '=' x 60 . "\n\n";
+        for my $c (@$content) {
+            $r .= ($c->{source_title} // 'Untitled') . "\n";
+            $r .= "  Type: $c->{source_type} | Tier: " . ($c->{significance_tier} // '—') . " | $c->{created_at}\n";
+            $r .= "  URL: " . ($c->{source_url} // '—') . "\n";
+            my $text = $c->{content_text} // '';
+            if (length($text) > 500) {
+                $text = substr($text, 0, 500) . '...';
+            }
+            $text =~ s/^/  /gm;
+            $r .= $text . "\n\n";
+        }
+    }
+
+    $r .= "— END OF REPORT —\n";
+    return $r;
 }
 
 1;

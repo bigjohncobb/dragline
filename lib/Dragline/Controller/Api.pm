@@ -305,4 +305,142 @@ sub create_person ($c) {
     $c->render(json => { ok => 1, person_id => $id });
 }
 
+sub intelligence ($c) {
+    my $id = $c->param('id');
+
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT t.*, p.name AS project_name
+          FROM targets t
+          JOIN projects p ON p.id = t.project_id
+          WHERE t.id = ? AND t.active = 1},
+        undef, $id,
+    );
+    unless ($target) {
+        $c->render(json => { error => 'Target not found' }, status => 404);
+        return;
+    }
+
+    my $aliases = $c->db->selectall_arrayref(
+        q{SELECT alias FROM target_aliases WHERE target_id = ? ORDER BY alias ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $domains = $c->db->selectall_arrayref(
+        q{SELECT domain, is_primary FROM target_domains WHERE target_id = ? ORDER BY is_primary DESC, domain ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $people = $c->db->selectall_arrayref(
+        q{SELECT pr.title, pr.started_at, pr.ended_at, pr.is_current,
+                 p.canonical_name AS person_name, p.nationality
+          FROM person_roles pr
+          JOIN people p ON p.id = pr.person_id
+          WHERE pr.target_id = ?
+          ORDER BY p.canonical_name ASC},
+        { Slice => {} }, $id,
+    );
+
+    my $events = $c->db->selectall_arrayref(
+        q{SELECT event_date, event_type, description, source_url, confidence
+          FROM event_timeline
+          WHERE target_id = ?
+          ORDER BY event_date DESC},
+        { Slice => {} }, $id,
+    );
+
+    my $content = $c->db->selectall_arrayref(
+        q{SELECT id, source_type, source_url, source_title, content_text,
+                 significance_tier, word_count, language_code, fetched_at, created_at
+          FROM raw_content
+          WHERE target_id = ?
+          ORDER BY created_at DESC},
+        { Slice => {} }, $id,
+    );
+
+    my $dossier = $c->db->selectrow_hashref(
+        q{SELECT * FROM dossiers WHERE target_id = ? AND status = 'current'},
+        undef, $id,
+    );
+
+    my $dossier_sections = [];
+    if ($dossier) {
+        $dossier_sections = $c->db->selectall_arrayref(
+            q{SELECT section_number, section_name, content, model_used, token_count
+              FROM dossier_sections
+              WHERE dossier_id = ?
+              ORDER BY section_number ASC},
+            { Slice => {} }, $dossier->{id},
+        );
+    }
+
+    my $monitoring = $c->db->selectrow_hashref(
+        q{SELECT * FROM target_monitoring WHERE target_id = ?},
+        undef, $id,
+    );
+
+    my $forge_items = $c->db->selectall_arrayref(
+        q{SELECT forge_item_id, title, url, published_at, sentiment_score, mention_count
+          FROM forge_items
+          WHERE target_id = ?
+          ORDER BY published_at DESC},
+        { Slice => {} }, $id,
+    );
+
+    my $org_structure = $c->db->selectall_arrayref(
+        q{SELECT os.*,
+                 t1.canonical_name AS parent_name,
+                 t2.canonical_name AS child_name
+          FROM org_structure os
+          JOIN targets t1 ON t1.id = os.parent_target_id
+          JOIN targets t2 ON t2.id = os.child_target_id
+          WHERE os.parent_target_id = ? OR os.child_target_id = ?},
+        { Slice => {} }, $id, $id,
+    );
+
+    my $peers = $c->db->selectall_arrayref(
+        q{SELECT pr.*,
+                 t1.canonical_name AS target_a_name,
+                 t2.canonical_name AS target_b_name
+          FROM peer_relationships pr
+          JOIN targets t1 ON t1.id = pr.target_id_a
+          JOIN targets t2 ON t2.id = pr.target_id_b
+          WHERE pr.target_id_a = ? OR pr.target_id_b = ?},
+        { Slice => {} }, $id, $id,
+    );
+
+    my $gap_signals = $c->db->selectall_arrayref(
+        q{SELECT gap_type, gap_days, severity, is_active, first_detected_at, resolved_at
+          FROM gap_signals
+          WHERE target_id = ?},
+        { Slice => {} }, $id,
+    );
+
+    my $sanctions = $c->db->selectall_arrayref(
+        q{SELECT match_type, entity_name, matched_name, dataset, score, status
+          FROM sanctions_matches
+          WHERE target_id = ?},
+        { Slice => {} }, $id,
+    );
+
+    $c->render(json => {
+        target => $target,
+        aliases => [ map { $_->{alias} } @$aliases ],
+        domains => $domains,
+        people => $people,
+        events => $events,
+        content => $content,
+        dossier => {
+            status => $dossier ? $dossier->{status} : undef,
+            generated_at => $dossier ? $dossier->{generated_at} : undef,
+            sections => $dossier_sections,
+        },
+        monitoring => $monitoring,
+        forge_items => $forge_items,
+        org_structure => $org_structure,
+        peer_relationships => $peers,
+        gap_signals => $gap_signals,
+        sanctions_matches => $sanctions,
+    });
+}
+
 1;
