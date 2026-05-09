@@ -19,8 +19,18 @@ hypnotoad.pid
 # CPAN local-lib (installed dependencies — use cpanm --installdeps)
 local/
 
+# Bucket service — generated/installed files
+bucket/venv/
+bucket/browsers/
+bucket/__pycache__/
+bucket/.cache/
+bucket/.local/
+
 # OS / editor noise
 .DS_Store
 *.swp
 *.swo
 *~
+__pycache__/
+*.pyc
+*.pyo
