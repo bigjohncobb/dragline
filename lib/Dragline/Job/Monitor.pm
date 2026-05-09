@@ -25,6 +25,8 @@ sub run {
     die "Monitor: target $target_id not found" unless $target;
 
     my $run_id = $_uuid->create_str;
+
+    # Insert the run record before the transaction so a failure still leaves a trace.
     $dbh->do(
         q{INSERT INTO monitor_runs (id, target_id, run_type, status)
           VALUES (?, ?, 'full', 'running')},
@@ -34,6 +36,7 @@ sub run {
     my $has_deltas = 0;
     my $delta_count = 0;
 
+    $dbh->begin_work;
     eval {
         # Find previous completed monitor run
         my $prev_run = $dbh->selectrow_hashref(
@@ -119,6 +122,8 @@ sub run {
             undef, $run_id,
         );
 
+        $dbh->commit;
+
         # Trigger re-synthesis if deltas found
         if ($has_deltas && $delta_count >= ($args->{min_deltas} // 1)) {
             $self->app->minion->enqueue('synthesise',
@@ -130,20 +135,19 @@ sub run {
         else {
             $log->info("Monitor: $delta_count deltas for target $target_id, no action");
         }
-    };
-
-    if ($@) {
+        1;
+    } or do {
         my $err = $@;
+        eval { $dbh->rollback; };
         eval {
             $dbh->do(
-                q{UPDATE monitor_runs SET status='failed', completed_at=datetime('now')
-                  WHERE id=?},
+                q{UPDATE monitor_runs SET status='failed', completed_at=datetime('now') WHERE id=?},
                 undef, $run_id,
             );
         };
         $log->error("Monitor: failed for target $target_id: $err");
         die $err;
-    }
+    };
 }
 
 1;

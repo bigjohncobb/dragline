@@ -48,6 +48,12 @@ sub create_webhook ($c) {
         return;
     }
 
+    unless ($c->check_ssrf($url)) {
+        $c->flash(error => 'That URL is not allowed (blocked by security policy).');
+        $c->redirect_to('/settings/webhooks');
+        return;
+    }
+
     # Validate event_types is valid JSON
     eval { decode_json($event_types) };
     if ($@) {

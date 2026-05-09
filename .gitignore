@@ -1,0 +1,26 @@
+# Runtime databases — never commit
+dragline.db
+dragline.db-shm
+dragline.db-wal
+dragline.db.bak
+minion.db
+minion.db-shm
+minion.db-wal
+
+# Process / lock files
+hypnotoad.pid
+*.pid
+
+# Environment / secrets
+*.env
+.env
+.env.*
+
+# CPAN local-lib (installed dependencies — use cpanm --installdeps)
+local/
+
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
+*~

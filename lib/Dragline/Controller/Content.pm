@@ -153,6 +153,13 @@ sub upload ($c) {
         return;
     }
 
+    my $max_bytes = 50 * 1024 * 1024;  # 50 MB
+    if ($upload->size > $max_bytes) {
+        $c->flash(error => 'File too large. Maximum upload size is 50 MB.');
+        $c->redirect_to("/targets/$id/content");
+        return;
+    }
+
     my $header = $upload->slurp;
     my $magic  = substr($header, 0, 8);
 
@@ -506,13 +513,20 @@ sub add_watched_source ($c) {
         $cadence = 'daily';
     }
 
+    my %cadence_offset = (
+        hourly  => '+1 hour',
+        daily   => '+1 day',
+        weekly  => '+7 days',
+    );
+    my $next_offset = $cadence_offset{$cadence} // '+1 day';
+
     my $ws_id = $c->new_uuid;
     eval {
         $c->db->do(
             q{INSERT INTO watched_sources
                 (id, target_id, url, watch_cadence, next_check_at, created_at, updated_at)
-              VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))},
-            undef, $ws_id, $id, $url, $cadence,
+              VALUES (?, ?, ?, ?, datetime('now', ?), datetime('now'), datetime('now'))},
+            undef, $ws_id, $id, $url, $cadence, $next_offset,
         );
     };
     if ($@) {

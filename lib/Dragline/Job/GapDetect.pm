@@ -62,95 +62,105 @@ sub run {
         undef, $target->{created_at},
     );
 
-    for my $check (@GAP_CHECKS) {
-        if ($target_age_days < $check->{min_age}) {
-            $log->debug("GapDetect: skipping $check->{type} for target $target_id (age $target_age_days < $check->{min_age})");
-            next;
-        }
-
-        my $last_seen_at = $dbh->selectrow_array($check->{sql}, undef, $target_id);
-
-        my $gap_days;
-        if (defined $last_seen_at) {
-            $gap_days = $dbh->selectrow_array(
-                q{SELECT CAST(julianday('now') - julianday(?) AS INTEGER)},
-                undef, $last_seen_at,
-            );
-        }
-        else {
-            $gap_days = $target_age_days;
-        }
-
-        my $severity = _severity($gap_days, $check->{thresholds});
-
-        my $existing = $dbh->selectrow_hashref(
-            q{SELECT id, gap_days, severity, is_active FROM gap_signals
-              WHERE target_id = ? AND gap_type = ?},
-            undef, $target_id, $check->{type},
-        );
-
-        if (defined $severity) {
-            # Gap is active
-            if (!$existing) {
-                # New gap
-                my $id = $_uuid->create_str;
-                $dbh->do(
-                    q{INSERT INTO gap_signals
-                        (id, target_id, gap_type, gap_days, severity, is_active, first_detected_at)
-                      VALUES (?, ?, ?, ?, ?, 1, datetime('now'))},
-                    undef, $id, $target_id, $check->{type}, $gap_days, $severity,
-                );
-                _emit_change_event($dbh, $target_id, $check->{type}, $severity,
-                    "$check->{type} gap of $gap_days days detected for $target->{canonical_name}");
+    $dbh->begin_work;
+    eval {
+        for my $check (@GAP_CHECKS) {
+            if ($target_age_days < $check->{min_age}) {
+                $log->debug("GapDetect: skipping $check->{type} for target $target_id (age $target_age_days < $check->{min_age})");
+                next;
             }
-            elsif ($existing->{is_active}) {
-                if (_severity_rank($severity) > _severity_rank($existing->{severity})) {
-                    # Escalation
+
+            my $last_seen_at = $dbh->selectrow_array($check->{sql}, undef, $target_id);
+
+            my $gap_days;
+            if (defined $last_seen_at) {
+                $gap_days = $dbh->selectrow_array(
+                    q{SELECT CAST(julianday('now') - julianday(?) AS INTEGER)},
+                    undef, $last_seen_at,
+                );
+            }
+            else {
+                $gap_days = $target_age_days;
+            }
+
+            my $severity = _severity($gap_days, $check->{thresholds});
+
+            my $existing = $dbh->selectrow_hashref(
+                q{SELECT id, gap_days, severity, is_active FROM gap_signals
+                  WHERE target_id = ? AND gap_type = ?},
+                undef, $target_id, $check->{type},
+            );
+
+            if (defined $severity) {
+                # Gap is active
+                if (!$existing) {
+                    # New gap
+                    my $id = $_uuid->create_str;
                     $dbh->do(
-                        q{UPDATE gap_signals SET gap_days = ?, severity = ?
+                        q{INSERT INTO gap_signals
+                            (id, target_id, gap_type, gap_days, severity, is_active, first_detected_at)
+                          VALUES (?, ?, ?, ?, ?, 1, datetime('now'))},
+                        undef, $id, $target_id, $check->{type}, $gap_days, $severity,
+                    );
+                    _emit_change_event($dbh, $target_id, $check->{type}, $severity,
+                        "$check->{type} gap of $gap_days days detected for $target->{canonical_name}");
+                }
+                elsif ($existing->{is_active}) {
+                    if (_severity_rank($severity) > _severity_rank($existing->{severity})) {
+                        # Escalation
+                        $dbh->do(
+                            q{UPDATE gap_signals SET gap_days = ?, severity = ?
+                              WHERE id = ?},
+                            undef, $gap_days, $severity, $existing->{id},
+                        );
+                        _emit_change_event($dbh, $target_id, $check->{type}, $severity,
+                            "$check->{type} gap escalated to $severity ($gap_days days) for $target->{canonical_name}");
+                    }
+                    else {
+                        # Same or lower severity — just update gap_days
+                        $dbh->do(
+                            q{UPDATE gap_signals SET gap_days = ? WHERE id = ?},
+                            undef, $gap_days, $existing->{id},
+                        );
+                    }
+                }
+                else {
+                    # Re-open previously resolved gap
+                    $dbh->do(
+                        q{UPDATE gap_signals SET
+                            is_active = 1, resolved_at = NULL,
+                            first_detected_at = COALESCE(first_detected_at, datetime('now')),
+                            gap_days = ?, severity = ?
                           WHERE id = ?},
                         undef, $gap_days, $severity, $existing->{id},
                     );
                     _emit_change_event($dbh, $target_id, $check->{type}, $severity,
-                        "$check->{type} gap escalated to $severity ($gap_days days) for $target->{canonical_name}");
-                }
-                else {
-                    # Same or lower severity — just update gap_days
-                    $dbh->do(
-                        q{UPDATE gap_signals SET gap_days = ? WHERE id = ?},
-                        undef, $gap_days, $existing->{id},
-                    );
+                        "$check->{type} gap re-opened ($gap_days days) for $target->{canonical_name}");
                 }
             }
             else {
-                # Re-open previously resolved gap
-                $dbh->do(
-                    q{UPDATE gap_signals SET
-                        is_active = 1, resolved_at = NULL,
-                        first_detected_at = datetime('now'),
-                        gap_days = ?, severity = ?
-                      WHERE id = ?},
-                    undef, $gap_days, $severity, $existing->{id},
-                );
-                _emit_change_event($dbh, $target_id, $check->{type}, $severity,
-                    "$check->{type} gap re-opened ($gap_days days) for $target->{canonical_name}");
+                # Gap is not active
+                if ($existing && $existing->{is_active}) {
+                    $dbh->do(
+                        q{UPDATE gap_signals SET is_active = 0, resolved_at = datetime('now')
+                          WHERE id = ?},
+                        undef, $existing->{id},
+                    );
+                    _emit_change_event($dbh, $target_id, $check->{type}, 'info',
+                        "$check->{type} gap resolved for $target->{canonical_name}");
+                }
             }
         }
-        else {
-            # Gap is not active
-            if ($existing && $existing->{is_active}) {
-                $dbh->do(
-                    q{UPDATE gap_signals SET is_active = 0, resolved_at = datetime('now')
-                      WHERE id = ?},
-                    undef, $existing->{id},
-                );
-                _emit_change_event($dbh, $target_id, $check->{type}, 'info',
-                    "$check->{type} gap resolved for $target->{canonical_name}");
-            }
-        }
-    }
 
-    $log->info("GapDetect: completed for target $target_id");
+        $dbh->commit;
+        $log->info("GapDetect: completed for target $target_id");
+        1;
+    } or do {
+        my $err = $@;
+        eval { $dbh->rollback; };
+        $log->error("GapDetect: failed for target $target_id: $err");
+        die $err;
+    };
 }
 
 sub _severity {

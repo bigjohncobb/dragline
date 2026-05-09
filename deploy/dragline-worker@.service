@@ -11,7 +11,7 @@
 
 [Unit]
 Description=Dragline Minion job worker (instance %i)
-Documentation=https://github.com/your-org/dragline
+Documentation=https://github.com/bigjohncobb/dragline
 After=network.target dragline@%i.service
 Wants=network.target
 

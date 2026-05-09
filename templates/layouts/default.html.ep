@@ -5,14 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="<%= csrf_token %>">
   <title><%= stash('title') // 'Dragline' %></title>
+  <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+  <link rel="icon" type="image/png" sizes="96x96" href="/images/favicon-96x96.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+  <link rel="manifest" href="/images/site.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/dragline.css">
 </head>
 <body>
+% if (current_user) {
 <nav class="nav">
-  <a class="nav-wordmark" href="/">Dragline</a>
+  <a class="nav-wordmark" href="/"><img src="/images/dragline-logo.png" alt="Dragline" class="nav-logo"></a>
   <ul class="nav-links">
     <li><a href="/">Dashboard</a></li>
     <li><a href="/targets">Targets</a></li>
@@ -21,7 +26,7 @@
     <li><a href="/search">Search</a></li>
     <li><a href="/bookmarks">Bookmarks</a></li>
     <li><a href="/notifications">Notifications<%= unread_notification_count ? ' (' . unread_notification_count . ')' : '' %></a></li>
-    % if (current_user && current_user->{role} eq 'admin') {
+    % if (current_user->{role} eq 'admin') {
     <li><a href="/admin/health">Admin</a></li>
     % }
   </ul>
@@ -29,14 +34,13 @@
     <button type="button" class="theme-toggle" id="theme-toggle" title="Toggle theme">
       <span id="theme-icon"></span>
     </button>
-    % if (my $u = current_user) {
-    <span class="username"><%= $u->{username} %></span>
+    % my $u = current_user;
+    <a href="/change-password" class="username"><%= $u->{username} %></a>
     <span class="role-badge role-<%= $u->{role} %>"><%= $u->{role} %></span>
-    <a href="/change-password">Password</a>
     <a href="/logout">Sign out</a>
-    % }
   </div>
 </nav>
+% }
 
 % if (my $msg = flash('success')) {
 <div class="flash flash-success"><%= $msg %></div>

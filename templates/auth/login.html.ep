@@ -2,7 +2,8 @@
 % title 'Dragline — Sign In';
 <div class="login-wrap">
   <div class="login-card">
-    <h1 class="login-title">Dragline</h1>
+    <img src="/images/dragline-logo.png" alt="Dragline" class="login-logo">
+    <span class="login-subtitle">Entity Intelligence Platform</span>
     % if (my $err = stash('error') // flash('error')) {
     <div class="flash flash-error"><%= $err %></div>
     % }

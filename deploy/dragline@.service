@@ -13,7 +13,7 @@
 
 [Unit]
 Description=Dragline entity intelligence platform (instance %i)
-Documentation=https://github.com/your-org/dragline
+Documentation=https://github.com/bigjohncobb/dragline
 After=network.target
 Wants=network.target
 

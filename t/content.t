@@ -135,4 +135,23 @@ subtest 'Crawl same URL twice flashes already queued' => sub {
     like($t->tx->res->body, qr/already queued/i, 'Duplicate queue flash shown');
 };
 
+subtest 'Extract intelligence queues doc_intelligence job' => sub {
+    # Insert a raw_content row directly
+    my $rc_id = 'rc-test-001';
+    db()->do(
+        q{INSERT INTO raw_content (id, target_id, source_type, content_text, content_hash, word_count, created_at)
+          VALUES (?, ?, 'upload', 'Test content for extraction.', ?, 5, datetime('now'))},
+        undef, $rc_id, $target_id, 'abc123',
+    );
+
+    $t->get_ok("/targets/$target_id/content")->status_is(200);
+    my $csrf = extract_csrf($t);
+    $t->post_ok("/targets/$target_id/content/$rc_id/extract" => form => {
+        _csrf_token => $csrf,
+    })->status_is(302);
+
+    my $jobs = app()->minion->backend->list_jobs(0, 10, { tasks => ['doc_intelligence'] });
+    ok($jobs->{total} >= 1, 'Minion doc_intelligence job enqueued');
+};
+
 done_testing();

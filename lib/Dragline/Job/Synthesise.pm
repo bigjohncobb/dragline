@@ -78,7 +78,7 @@ sub run {
         my $rows = $dbh->selectall_arrayref(
             q{SELECT content_text, source_url FROM raw_content
               WHERE target_id=?
-              ORDER BY significance_tier DESC NULLS LAST, created_at DESC},
+              ORDER BY COALESCE(significance_tier, 999) DESC, created_at DESC},
             { Slice => {} }, $target_id,
         );
 
@@ -162,59 +162,67 @@ sub run {
             Dragline::Job::Steps::mark_done($dbh, 'dossier', $dossier_id, $step_name);
         }
 
-        # ---- Completion guard ----
-        my $section_count = $dbh->selectrow_array(
-            q{SELECT COUNT(*) FROM dossier_sections WHERE dossier_id = ?},
-            undef, $dossier_id,
-        );
-        if ($section_count < 10) {
-            die "Synthesise: only $section_count/10 sections present for dossier $dossier_id, will retry";
-        }
+        # ---- Atomic completion: guard, status, version, event ----
+        $dbh->begin_work;
+        eval {
+            my $section_count = $dbh->selectrow_array(
+                q{SELECT COUNT(*) FROM dossier_sections WHERE dossier_id = ? AND LENGTH(COALESCE(content,'')) > 0},
+                undef, $dossier_id,
+            );
+            if ($section_count < 10) {
+                die "Synthesise: only $section_count/10 sections present for dossier $dossier_id, will retry";
+            }
 
-        $dbh->do(
-            q{UPDATE dossiers SET status='current', generated_at=datetime('now'),
-              updated_at=datetime('now') WHERE id=?},
-            undef, $dossier_id,
-        );
+            $dbh->do(
+                q{UPDATE dossiers SET status='current', generated_at=datetime('now'),
+                  updated_at=datetime('now') WHERE id=?},
+                undef, $dossier_id,
+            );
 
-        # ---- Write dossier version snapshot ----
-        my $sections = $dbh->selectall_arrayref(
-            q{SELECT section_number, section_name, content, model_used, token_count
-              FROM dossier_sections WHERE dossier_id = ? ORDER BY section_number},
-            { Slice => {} }, $dossier_id,
-        );
-        my $version_num = $dbh->selectrow_array(
-            q{SELECT COALESCE(MAX(version_number), 0) + 1 FROM dossier_versions WHERE dossier_id = ?},
-            undef, $dossier_id,
-        );
-        my $snap_id = $_uuid->create_str;
-        $dbh->do(
-            q{INSERT INTO dossier_versions
-                (id, dossier_id, target_id, version_number, snapshot_json, created_by)
-              VALUES (?, ?, ?, ?, ?, 'synthesise')},
-            undef, $snap_id, $dossier_id, $target_id, $version_num,
-            encode_json($sections),
-        );
+            my $sections = $dbh->selectall_arrayref(
+                q{SELECT section_number, section_name, content, model_used, token_count
+                  FROM dossier_sections WHERE dossier_id = ? ORDER BY section_number},
+                { Slice => {} }, $dossier_id,
+            );
+            my $version_num = $dbh->selectrow_array(
+                q{SELECT COALESCE(MAX(version_number), 0) + 1 FROM dossier_versions WHERE dossier_id = ?},
+                undef, $dossier_id,
+            );
+            my $snap_id = $_uuid->create_str;
+            $dbh->do(
+                q{INSERT INTO dossier_versions
+                    (id, dossier_id, target_id, version_number, snapshot_json, created_by)
+                  VALUES (?, ?, ?, ?, ?, 'synthesise')},
+                undef, $snap_id, $dossier_id, $target_id, $version_num,
+                encode_json($sections),
+            );
 
-        my $ce_id = $_uuid->create_str;
-        $dbh->do(
-            q{INSERT INTO change_events
-                (id, target_id, event_type, summary, severity)
-              VALUES (?, ?, 'dossier_updated', 'Dossier updated for target', 'info')},
-            undef, $ce_id, $target_id,
-        );
+            my $ce_id = $_uuid->create_str;
+            $dbh->do(
+                q{INSERT INTO change_events
+                    (id, target_id, event_type, summary, severity)
+                  VALUES (?, ?, 'dossier_updated', 'Dossier updated for target', 'info')},
+                undef, $ce_id, $target_id,
+            );
 
-        $self->app->minion->enqueue('forward_assess',
-            [{ target_id => $target_id }],
-            { priority => 3 }
-        );
-        $self->app->minion->enqueue('timeline_extract',
-            [{ target_id => $target_id }],
-            { priority => 3 }
-        );
+            $dbh->commit;
 
-        $log->info("Synthesise: dossier $dossier_id complete for target $target_id (version $version_num)");
-        1;
+            $self->app->minion->enqueue('forward_assess',
+                [{ target_id => $target_id }],
+                { priority => 3 }
+            );
+            $self->app->minion->enqueue('timeline_extract',
+                [{ target_id => $target_id }],
+                { priority => 3 }
+            );
+
+            $log->info("Synthesise: dossier $dossier_id complete for target $target_id (version $version_num)");
+            1;
+        } or do {
+            my $err = $@;
+            eval { $dbh->rollback; };
+            die $err;
+        };
     };
 
     unless ($ok) {

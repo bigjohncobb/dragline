@@ -67,8 +67,12 @@ sub run {
 
     return unless @$sections;
 
-    # Sample deterministically based on section_number mod sample_rate
-    my @sample = grep { ($_->{section_number} % int(100 / $sample_rate)) == 0 } @$sections;
+    # Sample randomly based on sample_rate (e.g. 10 = check ~10% of sections)
+    # Use deterministic seed per section for reproducibility
+    my @sample = grep {
+        srand($_->{dossier_id} . $_->{section_number});
+        rand(100) < $sample_rate
+    } @$sections;
     @sample = @$sections if !@sample;
 
     my $settings_getter = sub {

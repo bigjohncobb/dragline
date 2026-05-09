@@ -67,6 +67,26 @@ sub daily_breakdown {
     );
 }
 
+sub model_breakdown {
+    my ($dbh, $days) = @_;
+
+    return $dbh->selectall_arrayref(
+        q{SELECT provider,
+                 COALESCE(model, '—')      AS model,
+                 operation,
+                 SUM(estimated_cost_usd)   AS total_cost_usd,
+                 SUM(input_tokens)         AS total_input_tokens,
+                 SUM(output_tokens)        AS total_output_tokens,
+                 COUNT(*)                  AS total_calls
+          FROM   cost_records
+          WHERE  created_at >= datetime('now', ? || ' days')
+          GROUP  BY provider, model, operation
+          ORDER  BY total_cost_usd DESC},
+        { Slice => {} },
+        "-$days",
+    );
+}
+
 sub by_target {
     my ($dbh, $target_id) = @_;
 

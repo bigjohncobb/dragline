@@ -1,6 +1,7 @@
 % layout 'default';
 % title 'Health — Admin — Dragline';
 % my $db_ok = stash('db_ok') // 0;
+% my $ds    = stash('db_stats') // {};
 % my $ms    = stash('minion_stats') // {};
 
 <div class="page-header">
@@ -24,6 +25,19 @@
     <p class="health-status <%= $db_ok ? 'health-ok' : 'health-error' %>">
       <%= $db_ok ? 'Connected' : 'Error' %>
     </p>
+    % if ($db_ok && %$ds) {
+    <table class="data-table data-table-compact">
+      <tbody>
+        <tr><td>File size</td>     <td><%= $ds->{file_size_mb} %> MB</td></tr>
+        <tr><td>Projects</td>      <td><%= $ds->{projects} %></td></tr>
+        <tr><td>Targets</td>       <td><%= $ds->{targets} %></td></tr>
+        <tr><td>People</td>        <td><%= $ds->{people} %></td></tr>
+        <tr><td>Content records</td><td><%= $ds->{raw_content} %></td></tr>
+        <tr><td>Cost records</td>  <td><%= $ds->{cost_records} %></td></tr>
+        <tr><td>Audit entries</td> <td><%= $ds->{audit_entries} %></td></tr>
+      </tbody>
+    </table>
+    % }
   </div>
 
   <div class="health-card">

@@ -28,8 +28,23 @@ sub health ($c) {
     my $db_ok = eval { $c->db->selectrow_array('SELECT 1'); 1 };
     my $minion_stats = eval { $c->minion->stats } // {};
 
+    my $db_stats = {};
+    if ($db_ok) {
+        my $db_path = $ENV{DRAGLINE_DB} // './dragline.db';
+        $db_stats = {
+            file_size_mb  => sprintf('%.2f', (-s $db_path) / 1_048_576),
+            targets       => ($c->db->selectrow_array('SELECT COUNT(*) FROM targets'))[0],
+            projects      => ($c->db->selectrow_array('SELECT COUNT(*) FROM projects'))[0],
+            people        => ($c->db->selectrow_array('SELECT COUNT(*) FROM people'))[0],
+            raw_content   => ($c->db->selectrow_array('SELECT COUNT(*) FROM raw_content'))[0],
+            cost_records  => ($c->db->selectrow_array('SELECT COUNT(*) FROM cost_records'))[0],
+            audit_entries => ($c->db->selectrow_array('SELECT COUNT(*) FROM audit_log'))[0],
+        };
+    }
+
     $c->stash(
         db_ok        => $db_ok ? 1 : 0,
+        db_stats     => $db_stats,
         minion_stats => $minion_stats,
     );
     $c->render(template => 'admin/health');
@@ -85,9 +100,10 @@ sub update_settings ($c) {
 }
 
 sub costs ($c) {
-    my $summary   = Dragline::Cost::summary($c->db, 30);
-    my $breakdown = Dragline::Cost::daily_breakdown($c->db, 30);
-    $c->stash(summary => $summary, breakdown => $breakdown);
+    my $summary         = Dragline::Cost::summary($c->db, 30);
+    my $breakdown       = Dragline::Cost::daily_breakdown($c->db, 30);
+    my $model_breakdown = Dragline::Cost::model_breakdown($c->db, 30);
+    $c->stash(summary => $summary, breakdown => $breakdown, model_breakdown => $model_breakdown);
     $c->render(template => 'admin/costs');
 }
 
@@ -228,6 +244,105 @@ sub delete_user ($c) {
     $c->redirect_to('/admin/users');
 }
 
+sub edit_user_form ($c) {
+    my $id   = $c->param('id');
+    my $user = $c->db->selectrow_hashref(
+        q{SELECT * FROM users WHERE id = ?}, undef, $id,
+    );
+    return $c->render(text => 'Not found', status => 404) unless $user;
+    $c->stash(edit_user => $user);
+    $c->render(template => 'admin/edit_user');
+}
+
+sub update_user ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        $c->redirect_to('/admin/users');
+        return;
+    }
+
+    my $id   = $c->param('id');
+    my $user = $c->db->selectrow_hashref(
+        q{SELECT * FROM users WHERE id = ?}, undef, $id,
+    );
+    unless ($user) {
+        $c->render(text => 'Not found', status => 404);
+        return;
+    }
+
+    my $role   = $c->param('role')   // $user->{role};
+    my $active = $c->param('active') // '0';
+    $active = $active ? 1 : 0;
+
+    unless (grep { $_ eq $role } qw(admin analyst)) {
+        $c->flash(error => 'Invalid role.');
+        $c->redirect_to("/admin/users/$id/edit");
+        return;
+    }
+
+    # Prevent removing the last active admin
+    if ($user->{role} eq 'admin' && ($role ne 'admin' || !$active)) {
+        my ($admin_count) = $c->db->selectrow_array(
+            q{SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1 AND id != ?},
+            undef, $id,
+        );
+        unless ($admin_count > 0) {
+            $c->flash(error => 'Cannot demote or deactivate the last active admin account.');
+            $c->redirect_to("/admin/users/$id/edit");
+            return;
+        }
+    }
+
+    my $new_password = $c->param('new_password')     // '';
+    my $confirm      = $c->param('confirm_password') // '';
+
+    if (length($new_password)) {
+        if ($new_password ne $confirm) {
+            $c->flash(error => 'Passwords do not match.');
+            $c->redirect_to("/admin/users/$id/edit");
+            return;
+        }
+        if (length($new_password) < 8) {
+            $c->flash(error => 'Password must be at least 8 characters.');
+            $c->redirect_to("/admin/users/$id/edit");
+            return;
+        }
+    }
+
+    my $pp   = length($new_password) ? Crypt::Passphrase->new(encoder => 'Bcrypt') : undef;
+    my $hash = $pp ? $pp->hash_password($new_password) : undef;
+
+    eval {
+        $c->db->begin_work;
+        if ($hash) {
+            $c->db->do(
+                q{UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?},
+                undef, $hash, $id,
+            );
+        }
+        $c->db->do(
+            q{UPDATE users SET role = ?, active = ?, updated_at = datetime('now') WHERE id = ?},
+            undef, $role, $active, $id,
+        );
+        $c->db->commit;
+    };
+    if ($@) {
+        eval { $c->db->rollback };
+        $c->flash(error => 'Failed to update user.');
+        $c->redirect_to("/admin/users/$id/edit");
+        return;
+    }
+
+    $c->log_audit('update_user', 'user', $id, { role => $role, active => $active });
+    $c->flash(success => "User \"$user->{username}\" updated.");
+    $c->redirect_to('/admin/users');
+}
+
 sub api_keys ($c) {
     my $keys = $c->db->selectall_arrayref(
         q{SELECT * FROM api_keys ORDER BY created_at DESC},
@@ -365,8 +480,8 @@ sub add_domain_blocklist ($c) {
     $domain =~ s/\/.*//;
     $domain = lc($domain);
 
-    unless (length($domain)) {
-        $c->flash(error => 'Domain is required.');
+    unless (length($domain) && $domain =~ /\./ && $domain !~ /\s/) {
+        $c->flash(error => 'Please enter a valid domain (e.g. example.com).');
         $c->redirect_to('/admin/domain-blocklist');
         return;
     }
@@ -507,11 +622,15 @@ sub import_targets ($c) {
 
         my $id       = $c->new_uuid;
         my $mon_id   = $c->new_uuid;
-        my $entity_type = $fields[$col_idx{entity_type}] // 'company';
-        my $country     = $fields[$col_idx{country}] // undef;
-        my $jurisdiction= $fields[$col_idx{jurisdiction}] // undef;
-        my $primary_domain = $fields[$col_idx{primary_domain}] // undef;
-        my $notes       = $fields[$col_idx{notes}] // undef;
+        my $entity_type = exists $col_idx{entity_type} ? ($fields[$col_idx{entity_type}] // 'company') : 'company';
+        my @valid_entity_types = qw(company exchange regulator agency individual other);
+        unless (grep { $_ eq $entity_type } @valid_entity_types) {
+            $entity_type = 'company';
+        }
+        my $country     = exists $col_idx{country}     ? ($fields[$col_idx{country}] // undef) : undef;
+        my $jurisdiction= exists $col_idx{jurisdiction} ? ($fields[$col_idx{jurisdiction}] // undef) : undef;
+        my $primary_domain = exists $col_idx{primary_domain} ? ($fields[$col_idx{primary_domain}] // undef) : undef;
+        my $notes       = exists $col_idx{notes}       ? ($fields[$col_idx{notes}] // undef) : undef;
 
         eval {
             $dbh->begin_work;

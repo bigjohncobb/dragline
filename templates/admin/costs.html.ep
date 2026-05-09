@@ -1,7 +1,8 @@
 % layout 'default';
 % title 'Costs — Admin — Dragline';
-% my $summary   = stash('summary')   // [];
-% my $breakdown = stash('breakdown') // [];
+% my $summary         = stash('summary')         // [];
+% my $breakdown       = stash('breakdown')       // [];
+% my $model_breakdown = stash('model_breakdown') // [];
 
 <div class="page-header">
   <h1>API Costs — Last 30 Days</h1>
@@ -29,6 +30,31 @@
 </table>
 % } else {
 <p class="empty-state">No cost records in the last 30 days.</p>
+% }
+
+% if (@$model_breakdown) {
+<h2>By model</h2>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Provider</th><th>Model</th><th>Operation</th>
+      <th>Cost</th><th>Input tokens</th><th>Output tokens</th><th>Calls</th>
+    </tr>
+  </thead>
+  <tbody>
+  % for my $row (@$model_breakdown) {
+    <tr>
+      <td><%= $row->{provider} %></td>
+      <td><%= $row->{model} %></td>
+      <td><%= $row->{operation} %></td>
+      <td>$<%= sprintf('%.4f', $row->{total_cost_usd} // 0) %></td>
+      <td><%= $row->{total_input_tokens}  // 0 %></td>
+      <td><%= $row->{total_output_tokens} // 0 %></td>
+      <td><%= $row->{total_calls} // 0 %></td>
+    </tr>
+  % }
+  </tbody>
+</table>
 % }
 
 % if (@$breakdown) {

@@ -1,0 +1,19 @@
+% layout 'default';
+% title 'Import Targets — Dragline';
+
+<div class="page-header">
+  <h1>Import Targets</h1>
+</div>
+
+<form method="post" action="/admin/import-targets" enctype="multipart/form-data" class="edit-form">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <div class="field-group">
+    <label>CSV File</label>
+    <input type="file" name="file" accept=".csv" required>
+    <p class="help-text">Required columns: <code>canonical_name</code>, <code>project_id</code>.
+      Optional: <code>entity_type</code>, <code>country</code>, <code>jurisdiction</code>,
+      <code>primary_domain</code>, <code>notes</code>, <code>aliases</code> (comma-separated),
+      <code>domains</code> (comma-separated).</p>
+  </div>
+  <button type="submit" class="btn btn-primary">Import</button>
+</form>

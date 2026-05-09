@@ -66,7 +66,8 @@ sub run {
         undef, $id, $raw_content_id, $blob, $model, $dims,
     );
 
-    $self->app->minion->enqueue(score => [{raw_content_id => $raw_content_id}], {attempts => 3});
+    $self->app->minion->enqueue(score       => [{raw_content_id => $raw_content_id}], {attempts => 3});
+    $self->app->minion->enqueue(ner_extract => [{raw_content_id => $raw_content_id}], {attempts => 3});
 
     $log->info("Embed: $raw_content_id embedded ($dims dims, model=$model)");
 }

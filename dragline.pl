@@ -14,12 +14,15 @@ use Dragline::SSRF;
 use Dragline::Cost;
 use Data::UUID;
 use Digest::SHA qw(sha256_hex);
-use JSON::PP qw(encode_json);
+use JSON::PP qw(encode_json decode_json);
 use Scalar::Util qw(looks_like_number);
 
-# In-memory rate-limit state — resets on restart
-my %_rate_limit_windows;
 my $_uuid_gen = Data::UUID->new;
+
+# Trusted reverse-proxy IPs allowed to supply X-Forwarded-For.
+# Set DRAGLINE_TRUSTED_PROXIES to a comma-separated list (e.g. "127.0.0.1,10.0.0.1").
+# Empty by default — headers from unknown sources are ignored.
+my %_trusted_proxies;
 
 sub startup ($self) {
 
@@ -36,6 +39,9 @@ sub startup ($self) {
     my $airgap         = $ENV{DRAGLINE_AIRGAP}    // '0';
     my $port           = $ENV{DRAGLINE_PORT}       // 3001;
     my $minion_db_path = $ENV{DRAGLINE_MINION_DB}  // './minion.db';
+
+    %_trusted_proxies = map { $_ => 1 }
+        grep { $_ } split /,\s*/, ($ENV{DRAGLINE_TRUSTED_PROXIES} // '');
 
     # ------------------------------------------------------------------ #
     # Database                                                             #
@@ -66,6 +72,7 @@ sub startup ($self) {
     $self->minion->add_task(sanctions_screen => 'Dragline::Job::SanctionsScreen');
     $self->minion->add_task(domain_enrich   => 'Dragline::Job::DomainEnrich');
     $self->minion->add_task(doc_intelligence => 'Dragline::Job::DocIntelligence');
+    $self->minion->add_task(ner_extract      => 'Dragline::Job::NerExtract');
     $self->minion->add_task(adversarial_check => 'Dragline::Job::AdversarialCheck');
     $self->minion->add_task(backup => 'Dragline::Job::Backup');
     $self->minion->add_task(webhook_deliver => 'Dragline::Job::WebhookDeliver');
@@ -223,9 +230,9 @@ sub startup ($self) {
 
         my $remote = $c->tx->remote_address // '';
         my $ip;
-        if ($remote eq '127.0.0.1' || $remote eq '::1') {
+        if (%_trusted_proxies && $_trusted_proxies{$remote}) {
             $ip = $c->req->headers->header('X-Forwarded-For') // $remote;
-            $ip =~ s/\s*,.*//;  # take first address
+            $ip =~ s/\s*,.*//;
             $ip =~ s/^\s+|\s+$//g;
         } else {
             $ip = $remote;
@@ -234,30 +241,46 @@ sub startup ($self) {
         my $key  = "tier:$tier:$ip";
         my $now  = time();
         my $win  = $cfg->{window};
+        my $dbh  = $c->db;
+        my $allowed = 1;
 
-        $_rate_limit_windows{$key} //= [];
-        my $entries = $_rate_limit_windows{$key};
-
-        # Prune entries outside the window
-        @$entries = grep { $_ > $now - $win } @$entries;
-
-        # Delete key entirely if no entries remain to prevent unbounded hash growth
-        unless (@$entries) {
-            delete $_rate_limit_windows{$key};
+        eval {
+            # BEGIN DEFERRED: write lock is only acquired if we actually push a timestamp,
+            # avoiding a held exclusive lock during the read-only denied case.
+            $dbh->do('BEGIN');
+            my ($json) = $dbh->selectrow_array(
+                q{SELECT timestamps FROM rate_limit_windows WHERE bucket_key = ?},
+                undef, $key,
+            );
+            my $ts = $json ? decode_json($json) : [];
+            @$ts = grep { $_ > $now - $win } @$ts;
+            if (scalar(@$ts) >= $cfg->{max}) {
+                $allowed = 0;
+                $dbh->do('ROLLBACK');
+            } else {
+                push @$ts, $now;
+                $dbh->do(
+                    q{INSERT OR REPLACE INTO rate_limit_windows (bucket_key, timestamps, updated_at)
+                      VALUES (?, ?, ?)},
+                    undef, $key, encode_json($ts), $now,
+                );
+                $dbh->do('COMMIT');
+            }
+        };
+        if ($@) {
+            eval { $dbh->do('ROLLBACK') };
+            return 1;  # fail open — don't deny on DB error
         }
 
-        # Hard cap on total keys to prevent memory exhaustion under high traffic
-        if (keys %_rate_limit_windows > 50000) {
-            my @oldest = sort { ($_rate_limit_windows{$a}[0] // 0) <=> ($_rate_limit_windows{$b}[0] // 0) } keys %_rate_limit_windows;
-            splice @oldest, int(@oldest / 2);
-            delete @_rate_limit_windows{@oldest};
+        # Periodically remove expired buckets (~1% of requests)
+        if (rand() < 0.01) {
+            eval { $dbh->do(
+                q{DELETE FROM rate_limit_windows WHERE updated_at < ?},
+                undef, $now - $win * 2,
+            ) };
         }
 
-        if (scalar(@$entries) >= $cfg->{max}) {
-            return 0;
-        }
-        push @$entries, $now;
-        return 1;
+        return $allowed;
     });
 
     $self->helper(airgap_mode => sub ($c) {
@@ -348,6 +371,8 @@ sub startup ($self) {
     # Hypnotoad                                                            #
     # ------------------------------------------------------------------ #
 
+    $self->max_request_size(50 * 1024 * 1024);
+
     $self->config(
         hypnotoad => {
             listen => ["http://*:$port"],
@@ -422,9 +447,6 @@ sub startup ($self) {
     $auth->get('/targets/:id/watched-sources')->to('Content#watched_sources');
     $auth->post('/targets/:id/watched-sources')->to('Content#add_watched_source');
     $auth->post('/targets/:id/watched-sources/:ws_id/delete')->to('Content#delete_watched_source');
-    $auth->get('/admin/crawl-queue')->to('Content#crawl_queue');
-    $auth->post('/admin/crawl-queue/:queue_id/retry')->to('Content#retry_crawl');
-    $auth->post('/admin/crawl-queue/:queue_id/delete')->to('Content#delete_crawl_queue');
 
     $auth->get('/targets/:id/dossier')->to('Dossiers#show');
     $auth->post('/targets/:id/dossier/generate')->to('Dossiers#generate');
@@ -479,6 +501,8 @@ sub startup ($self) {
     $admin->get('/audit')->to('Admin#audit_log');
     $admin->get('/users')->to('Admin#users');
     $admin->post('/users')->to('Admin#create_user');
+    $admin->get('/users/:id/edit')->to('Admin#edit_user_form');
+    $admin->post('/users/:id')->to('Admin#update_user');
     $admin->post('/users/:id/delete')->to('Admin#delete_user');
     $admin->get('/api-keys')->to('Admin#api_keys');
     $admin->post('/api-keys')->to('Admin#create_api_key');
@@ -487,6 +511,14 @@ sub startup ($self) {
 
     $admin->get('/import-targets')->to('Admin#import_targets_form');
     $admin->post('/import-targets')->to('Admin#import_targets');
+
+    $admin->get('/domain-blocklist')->to('Admin#domain_blocklist');
+    $admin->post('/domain-blocklist')->to('Admin#add_domain_blocklist');
+    $admin->post('/domain-blocklist/:id/delete')->to('Admin#delete_domain_blocklist');
+
+    $admin->get('/crawl-queue')->to('Content#crawl_queue');
+    $admin->post('/crawl-queue/:queue_id/retry')->to('Content#retry_crawl');
+    $admin->post('/crawl-queue/:queue_id/delete')->to('Content#delete_crawl_queue');
 
     $self->plugin('Minion::Admin', { route => $admin->any('/jobs') });
 
@@ -517,6 +549,23 @@ sub startup ($self) {
     $api->post('/targets')->to('Api#create_target');
     $api->post('/people')->to('Api#create_person');
     $api->get('/targets/:id/intelligence')->to('Api#intelligence');
+
+    # Security headers on every response
+    $self->hook(after_dispatch => sub ($c) {
+        my $h = $c->res->headers;
+        $h->header('X-Frame-Options'        => 'DENY');
+        $h->header('X-Content-Type-Options' => 'nosniff');
+        $h->header('Referrer-Policy'        => 'strict-origin-when-cross-origin');
+        $h->header('Content-Security-Policy' =>
+            "default-src 'self'; " .
+            "script-src 'self' 'unsafe-inline'; " .
+            "style-src 'self' 'unsafe-inline'; " .
+            "img-src 'self' data:; " .
+            "font-src 'self'; " .
+            "connect-src 'self'; " .
+            "frame-ancestors 'none'"
+        );
+    });
 
     # Custom error pages
     $self->hook(before_render => sub ($c, $args) {

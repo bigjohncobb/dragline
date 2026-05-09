@@ -211,4 +211,68 @@ subtest 'Update monitoring cadences' => sub {
     like($body, qr/value="monthly" selected/,  'Discover set to monthly');
 };
 
+subtest 'Org structure and peer relationships' => sub {
+    my $acme = db()->selectrow_hashref(
+        q{SELECT id FROM targets WHERE canonical_name = 'Acme Corp' AND project_id = ?},
+        undef, $project_id,
+    );
+    my $acme_id = $acme->{id};
+
+    # Create second target
+    $t->get_ok("/projects/$project_id/targets/new")->status_is(200);
+    my $csrf = extract_csrf($t);
+    $t->post_ok("/projects/$project_id/targets" => form => {
+        canonical_name => 'Beta Ltd',
+        entity_type    => 'company',
+        _csrf_token    => $csrf,
+    })->status_is(302);
+    my $beta = db()->selectrow_hashref(
+        q{SELECT id FROM targets WHERE canonical_name = 'Beta Ltd' AND project_id = ?},
+        undef, $project_id,
+    );
+    my $beta_id = $beta->{id};
+
+    # Add org structure
+    $t->get_ok("/targets/$acme_id")->status_is(200);
+    $csrf = extract_csrf($t);
+    $t->post_ok("/targets/$acme_id/org-structure" => form => {
+        other_target_id   => $beta_id,
+        relationship_type => 'subsidiary',
+        direction         => 'child',
+        _csrf_token       => $csrf,
+    })->status_is(302);
+
+    $t->get_ok("/targets/$acme_id")->status_is(200);
+    like($t->tx->res->body, qr/Beta Ltd/, 'Org structure appears on target page');
+
+    # Add peer relationship
+    $t->get_ok("/targets/$acme_id")->status_is(200);
+    $csrf = extract_csrf($t);
+    $t->post_ok("/targets/$acme_id/peers" => form => {
+        other_target_id   => $beta_id,
+        relationship_type => 'competitor',
+        _csrf_token       => $csrf,
+    })->status_is(302);
+
+    $t->get_ok("/targets/$acme_id")->status_is(200);
+    like($t->tx->res->body, qr/competitor/, 'Peer relationship appears on target page');
+};
+
+subtest 'Enrich domains queues job' => sub {
+    my $target = db()->selectrow_hashref(
+        q{SELECT id FROM targets WHERE canonical_name = 'Acme Corp' AND project_id = ?},
+        undef, $project_id,
+    );
+    my $tid = $target->{id};
+
+    $t->get_ok("/targets/$tid")->status_is(200);
+    my $csrf = extract_csrf($t);
+    $t->post_ok("/targets/$tid/enrich-domains" => form => {
+        _csrf_token => $csrf,
+    })->status_is(302);
+
+    my $jobs = app()->minion->backend->list_jobs(0, 10, { tasks => ['domain_enrich'] });
+    ok($jobs->{total} >= 1, 'Domain enrich job enqueued');
+};
+
 done_testing();

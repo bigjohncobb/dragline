@@ -2,6 +2,8 @@ use strict;
 use warnings;
 use utf8;
 
+use lib 'local/lib/perl5';
+
 use Exporter 'import';
 our @EXPORT = qw(app db admin_ua analyst_ua extract_csrf);
 

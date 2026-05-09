@@ -144,6 +144,20 @@ CREATE TABLE IF NOT EXISTS document_extractions (
     created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS ner_entities (
+    id              TEXT PRIMARY KEY,
+    raw_content_id  TEXT NOT NULL REFERENCES raw_content(id) ON DELETE CASCADE,
+    entity_text     TEXT NOT NULL,
+    entity_type     TEXT NOT NULL CHECK (entity_type IN ('PER','ORG','LOC','MISC')),
+    confidence      REAL,
+    language        TEXT,
+    model_used      TEXT NOT NULL DEFAULT 'wikineural-multilingual-ner',
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ner_entities_content ON ner_entities(raw_content_id);
+CREATE INDEX IF NOT EXISTS idx_ner_entities_type    ON ner_entities(entity_type);
+CREATE INDEX IF NOT EXISTS idx_ner_entities_text    ON ner_entities(entity_text);
+
 CREATE TABLE IF NOT EXISTS change_events (
     id             TEXT PRIMARY KEY,
     target_id      TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
@@ -317,8 +331,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE TABLE IF NOT EXISTS person_merge_log (
     id                     TEXT PRIMARY KEY,
-    primary_person_id      TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-    merged_person_id       TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    primary_person_id      TEXT NOT NULL REFERENCES people(id) ON DELETE RESTRICT,
+    merged_person_id       TEXT NOT NULL REFERENCES people(id) ON DELETE RESTRICT,
     merged_person_name     TEXT NOT NULL,
     roles_reassigned       INTEGER NOT NULL DEFAULT 0,
     connections_reassigned INTEGER NOT NULL DEFAULT 0,
@@ -689,26 +703,6 @@ BEGIN
     UPDATE peer_relationships SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
--- ============================================================
--- SEED DATA
--- ============================================================
-
--- Default admin user. Deploy script must prompt operator to change password on first run.
--- password_hash is a placeholder — not a valid bcrypt hash. The app will reject login until
--- the operator sets a real password via the admin UI or CLI.
-INSERT OR IGNORE INTO users (id, username, username_lower, password_hash, role, active, created_at, updated_at)
-VALUES (
-    '00000000-0000-0000-0000-000000000001',
-    'admin',
-    'admin',
-    '$2b$12$placeholder',
-    'admin',
-    1,
-    datetime('now'),
-    datetime('now')
-);
-
--- Default settings. Encrypted fields start empty, operator sets real values via admin UI.
 CREATE TABLE IF NOT EXISTS raw_content_diffs (
     id                 TEXT PRIMARY KEY,
     target_id          TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
@@ -771,7 +765,8 @@ CREATE TABLE IF NOT EXISTS backup_logs (
     error_message    TEXT,
     started_at       DATETIME NOT NULL DEFAULT (datetime('now')),
     completed_at     DATETIME,
-    created_at       DATETIME NOT NULL DEFAULT (datetime('now'))
+    created_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at       DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_raw_content_diffs_target ON raw_content_diffs(target_id);
@@ -845,7 +840,8 @@ CREATE TABLE IF NOT EXISTS webhook_configs (
     secret      TEXT,
     event_types TEXT NOT NULL DEFAULT '[]',
     is_active   INTEGER NOT NULL DEFAULT 1,
-    created_at  DATETIME NOT NULL DEFAULT (datetime('now'))
+    created_at  DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at  DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
@@ -858,7 +854,8 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     last_response_body   TEXT,
     delivered_at         DATETIME,
     last_error           TEXT,
-    created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS user_notifications (
@@ -869,7 +866,8 @@ CREATE TABLE IF NOT EXISTS user_notifications (
     event_type      TEXT NOT NULL,
     message         TEXT NOT NULL,
     is_read         INTEGER NOT NULL DEFAULT 0,
-    created_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS notification_preferences (
@@ -888,6 +886,140 @@ CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_config ON webhook_deliveries(w
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(delivered_at) WHERE delivered_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_user_notifications_user_unread ON user_notifications(user_id, is_read, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_notifications_target ON user_notifications(target_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_deltas_unique ON monitor_deltas(monitor_run_id, delta_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_job_steps_scope ON job_steps(scope_type, scope_id);
+
+-- ============================================================
+-- RATE LIMITING
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS rate_limit_windows (
+    bucket_key  TEXT PRIMARY KEY,
+    timestamps  TEXT NOT NULL DEFAULT '[]',
+    updated_at  REAL NOT NULL DEFAULT (unixepoch())
+);
+
+-- ============================================================
+-- MIGRATIONS (ALTER TABLE statements are safe to re-run;
+--   DB.pm ignores "duplicate column name" errors)
+-- ============================================================
+
+ALTER TABLE backup_logs        ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
+ALTER TABLE webhook_configs    ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
+ALTER TABLE webhook_deliveries ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
+ALTER TABLE user_notifications ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
+
+-- Recreate person_merge_log with RESTRICT FKs so merge audit records survive
+-- independently of the referenced person rows being deleted.
+-- DB.pm tolerates the DROP on replay (no such table → ignored).
+CREATE TABLE IF NOT EXISTS person_merge_log_v2 (
+    id                     TEXT PRIMARY KEY,
+    primary_person_id      TEXT NOT NULL REFERENCES people(id) ON DELETE RESTRICT,
+    merged_person_id       TEXT NOT NULL REFERENCES people(id) ON DELETE RESTRICT,
+    merged_person_name     TEXT NOT NULL,
+    roles_reassigned       INTEGER NOT NULL DEFAULT 0,
+    connections_reassigned INTEGER NOT NULL DEFAULT 0,
+    performed_by           TEXT REFERENCES users(id) ON DELETE SET NULL,
+    merge_note             TEXT,
+    created_at             DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO person_merge_log_v2 SELECT * FROM person_merge_log;
+DROP TABLE IF EXISTS person_merge_log;
+ALTER TABLE person_merge_log_v2 RENAME TO person_merge_log;
+CREATE INDEX IF NOT EXISTS idx_person_merge_log_primary  ON person_merge_log(primary_person_id);
+CREATE INDEX IF NOT EXISTS idx_person_merge_log_merged   ON person_merge_log(merged_person_id);
+
+-- ============================================================
+-- FTS5 FULL-TEXT SEARCH
+-- ============================================================
+
+CREATE VIRTUAL TABLE IF NOT EXISTS raw_content_fts USING fts5(
+    raw_content_id UNINDEXED,
+    content_text,
+    source_title
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_raw_content_fts_insert
+AFTER INSERT ON raw_content
+BEGIN
+    INSERT INTO raw_content_fts(raw_content_id, content_text, source_title)
+    VALUES (NEW.id, NEW.content_text, NEW.source_title);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_raw_content_fts_update
+AFTER UPDATE ON raw_content
+BEGIN
+    UPDATE raw_content_fts SET
+        content_text = NEW.content_text,
+        source_title = NEW.source_title
+    WHERE raw_content_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_raw_content_fts_delete
+AFTER DELETE ON raw_content
+BEGIN
+    DELETE FROM raw_content_fts WHERE raw_content_id = OLD.id;
+END;
+
+-- ============================================================
+-- TRIGGERS — updated_at maintenance
+-- (DROP + CREATE ensures the correct column is used even when
+--  migrating from the broken triggers that updated created_at)
+-- ============================================================
+
+DROP TRIGGER IF EXISTS trg_raw_content_diffs_updated_at;
+
+DROP TRIGGER IF EXISTS trg_backup_logs_updated_at;
+CREATE TRIGGER trg_backup_logs_updated_at
+AFTER UPDATE ON backup_logs
+FOR EACH ROW
+BEGIN
+    UPDATE backup_logs SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+DROP TRIGGER IF EXISTS trg_webhook_configs_updated_at;
+CREATE TRIGGER trg_webhook_configs_updated_at
+AFTER UPDATE ON webhook_configs
+FOR EACH ROW
+BEGIN
+    UPDATE webhook_configs SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+DROP TRIGGER IF EXISTS trg_webhook_deliveries_updated_at;
+CREATE TRIGGER trg_webhook_deliveries_updated_at
+AFTER UPDATE ON webhook_deliveries
+FOR EACH ROW
+BEGIN
+    UPDATE webhook_deliveries SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+DROP TRIGGER IF EXISTS trg_user_notifications_updated_at;
+CREATE TRIGGER trg_user_notifications_updated_at
+AFTER UPDATE ON user_notifications
+FOR EACH ROW
+BEGIN
+    UPDATE user_notifications SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+-- ============================================================
+-- SEED DATA
+-- ============================================================
+
+-- Default admin user. Deploy script must prompt operator to change password on first run.
+-- password_hash is a placeholder — not a valid bcrypt hash. The app will reject login until
+-- the operator sets a real password via the admin UI or CLI.
+INSERT OR IGNORE INTO users (id, username, username_lower, password_hash, role, active, created_at, updated_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'admin',
+    'admin',
+    '$2b$12$placeholder',
+    'admin',
+    1,
+    datetime('now'),
+    datetime('now')
+);
 
 INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('anthropic_api_key',             '',                       1, datetime('now')),
@@ -912,6 +1044,3 @@ INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('backup_s3_access_key',          '',                       1, datetime('now')),
     ('backup_s3_secret_key',          '',                       1, datetime('now')),
     ('backup_retention_days',         '30',                     0, datetime('now'));
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_deltas_unique ON monitor_deltas(monitor_run_id, delta_type, source_id);
-CREATE INDEX IF NOT EXISTS idx_job_steps_scope ON job_steps(scope_type, scope_id);

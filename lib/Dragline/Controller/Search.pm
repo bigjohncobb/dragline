@@ -132,7 +132,8 @@ sub text ($c) {
     my $people = $dbh->selectall_arrayref(
         q{SELECT id, canonical_name, nationality, bio_summary
           FROM people
-          WHERE canonical_name LIKE ? OR bio_summary LIKE ?
+          WHERE merged_into IS NULL
+            AND (canonical_name LIKE ? OR bio_summary LIKE ?)
           ORDER BY canonical_name ASC
           LIMIT ?},
         { Slice => {} }, $like, $like, $limit,
@@ -167,16 +168,33 @@ sub text ($c) {
         };
     }
 
-    my $content = $dbh->selectall_arrayref(
-        q{SELECT rc.id, rc.target_id, rc.source_type, rc.source_title, rc.source_url,
-                 rc.content_text, t.canonical_name AS target_name
-          FROM raw_content rc
-          JOIN targets t ON t.id = rc.target_id
-          WHERE rc.content_text LIKE ? OR rc.source_title LIKE ?
-          ORDER BY rc.created_at DESC
-          LIMIT ?},
-        { Slice => {} }, $like, $like, $limit,
-    );
+    # Try FTS5 first, fallback to LIKE
+    my $content;
+    eval {
+        $content = $dbh->selectall_arrayref(
+            q{SELECT rc.id, rc.target_id, rc.source_type, rc.source_title, rc.source_url,
+                     rc.content_text, t.canonical_name AS target_name
+              FROM raw_content_fts fts
+              JOIN raw_content rc ON rc.id = fts.raw_content_id
+              JOIN targets t ON t.id = rc.target_id
+              WHERE raw_content_fts MATCH ?
+              ORDER BY rank
+              LIMIT ?},
+            { Slice => {} }, $query, $limit,
+        );
+    };
+    if ($@) {
+        $content = $dbh->selectall_arrayref(
+            q{SELECT rc.id, rc.target_id, rc.source_type, rc.source_title, rc.source_url,
+                     rc.content_text, t.canonical_name AS target_name
+              FROM raw_content rc
+              JOIN targets t ON t.id = rc.target_id
+              WHERE rc.content_text LIKE ? OR rc.source_title LIKE ?
+              ORDER BY rc.created_at DESC
+              LIMIT ?},
+            { Slice => {} }, $like, $like, $limit,
+        );
+    }
     for my $r (@$content) {
         my $snippet = $r->{content_text} // '';
         if (length($snippet) > 200) {

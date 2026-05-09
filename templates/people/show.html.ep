@@ -129,3 +129,25 @@
   </details>
   % }
 </section>
+
+<!-- Merge -->
+<section class="detail-section">
+  <h2>Merge</h2>
+  <details class="add-form-collapsible">
+    <summary>Merge into another person</summary>
+    <form method="post" action="/people/<%= $person->{id} %>/merge" class="edit-form edit-form-compact"
+          onsubmit="return confirm('Merge <%= $person->{canonical_name} %> into the selected person? This cannot be undone.')">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <div class="field-row">
+        <select name="target_person_id" required class="select-sm">
+          <option value="">Select person…</option>
+          % for my $op (@$all_people) {
+          <option value="<%= $op->{id} %>"><%= $op->{canonical_name} %></option>
+          % }
+        </select>
+        <input type="text" name="merge_note" placeholder="Note (optional)" class="input-sm">
+        <button type="submit" class="btn btn-sm btn-warning">Merge</button>
+      </div>
+    </form>
+  </details>
+</section>

@@ -15,7 +15,7 @@ sub is_done {
           WHERE scope_type = ? AND scope_id = ? AND step_name = ?},
         undef, $scope_type, $scope_id, $step_name,
     );
-    return $row ? 1 : '';
+    return $row ? 1 : 0;
 }
 
 sub save {

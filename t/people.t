@@ -108,4 +108,29 @@ subtest 'Duplicate connection rejected' => sub {
     like($t->tx->res->body, qr/Connection already exists/i, 'Duplicate connection error');
 };
 
+subtest 'Merge person reassigns roles and hides from list' => sub {
+    my $jane = db()->selectrow_hashref(q{SELECT id FROM people WHERE canonical_name = 'Jane Doe'});
+    my $john = db()->selectrow_hashref(q{SELECT id FROM people WHERE canonical_name = 'John Smith'});
+
+    $t->get_ok("/people/$jane->{id}")->status_is(200);
+    my $csrf = extract_csrf($t);
+    $t->post_ok("/people/$jane->{id}/merge" => form => {
+        target_person_id => $john->{id},
+        _csrf_token      => $csrf,
+    })->status_is(302);
+
+    my $merged = db()->selectrow_hashref(q{SELECT merged_into FROM people WHERE id = ?}, undef, $jane->{id});
+    is($merged->{merged_into}, $john->{id}, 'Jane merged into John');
+
+    my $roles = db()->selectall_arrayref(
+        q{SELECT person_id FROM person_roles WHERE person_id = ?},
+        { Slice => {} }, $john->{id},
+    );
+    ok(@$roles > 0, 'Roles reassigned to John');
+
+    $t->get_ok('/people')->status_is(200);
+    unlike($t->tx->res->body, qr/Jane Doe/, 'Merged person hidden from index');
+    like($t->tx->res->body, qr/John Smith/, 'Primary person still visible');
+};
+
 done_testing();

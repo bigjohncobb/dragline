@@ -19,6 +19,7 @@
       <td><span class="badge <%= $u->{active} ? 'badge-active' : 'badge-inactive' %>"><%= $u->{active} ? 'active' : 'inactive' %></span></td>
       <td><%= $u->{last_login_at} ? substr($u->{last_login_at}, 0, 16) : '—' %></td>
       <td class="td-action">
+        <a href="/admin/users/<%= $u->{id} %>/edit" class="btn btn-xs btn-secondary">Edit</a>
         % if (!$current || $current->{id} ne $u->{id}) {
         <form method="post" action="/admin/users/<%= $u->{id} %>/delete" class="inline-form"
               onsubmit="return confirm('Deactivate user <%= $u->{username} %>?')">

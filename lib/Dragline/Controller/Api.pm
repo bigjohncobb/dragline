@@ -348,13 +348,24 @@ sub intelligence ($c) {
         { Slice => {} }, $id,
     );
 
+    # Pagination parameters for content
+    my $content_page = $c->param('content_page') // 1;
+    $content_page = 1 unless $content_page =~ /^\d+$/ && $content_page > 0;
+    my $content_limit = 50;
+    my $content_offset = ($content_page - 1) * $content_limit;
+
     my $content = $c->db->selectall_arrayref(
         q{SELECT id, source_type, source_url, source_title, content_text,
                  significance_tier, word_count, language_code, fetched_at, created_at
           FROM raw_content
           WHERE target_id = ?
-          ORDER BY created_at DESC},
-        { Slice => {} }, $id,
+          ORDER BY created_at DESC
+          LIMIT ? OFFSET ?},
+        { Slice => {} }, $id, $content_limit, $content_offset,
+    );
+
+    my ($content_total) = $c->db->selectrow_array(
+        q{SELECT COUNT(*) FROM raw_content WHERE target_id = ?}, undef, $id,
     );
 
     my $dossier = $c->db->selectrow_hashref(
@@ -428,7 +439,12 @@ sub intelligence ($c) {
         domains => $domains,
         people => $people,
         events => $events,
-        content => $content,
+        content => {
+            items      => $content,
+            page       => $content_page + 0,
+            per_page   => $content_limit,
+            total      => $content_total + 0,
+        },
         dossier => {
             status => $dossier ? $dossier->{status} : undef,
             generated_at => $dossier ? $dossier->{generated_at} : undef,

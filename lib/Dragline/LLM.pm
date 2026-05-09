@@ -40,6 +40,10 @@ my %PROVIDER_ORDER = (
         { provider => 'qwen',      model => 'qwen-plus'        },
         { provider => 'ollama',    model => 'llama3'            },
     ],
+    doc_intelligence => [
+        { provider => 'qwen',      model => 'qwen-plus'        },
+        { provider => 'ollama',    model => 'llama3'            },
+    ],
 );
 
 my @OLLAMA_ONLY = ({ provider => 'ollama', model => 'llama3' });

@@ -99,13 +99,16 @@ sub create_collection ($c) {
     eval {
         $c->db->do(
             q{INSERT INTO bookmark_collections (id, user_id, name, created_at)
-              VALUES (?, ?, ?, datetime('now'))
-              ON CONFLICT DO NOTHING},
+              VALUES (?, ?, ?, datetime('now'))},
             undef, $c->new_uuid, $user_id, $name,
         );
     };
     if ($@) {
-        $c->flash(error => 'Failed to create collection.');
+        if ($@ =~ /UNIQUE constraint failed/) {
+            $c->flash(error => 'A collection with that name already exists.');
+        } else {
+            $c->flash(error => 'Failed to create collection.');
+        }
     } else {
         $c->flash(success => 'Collection created.');
     }

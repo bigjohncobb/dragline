@@ -22,6 +22,17 @@ sub _ua {
     };
 }
 
+sub _trim_entity {
+    my ($entity) = @_;
+    return encode_json({
+        id       => $entity->{id},
+        caption  => $entity->{caption},
+        schema   => $entity->{schema},
+        datasets => $entity->{datasets},
+        url      => $entity->{properties}{sourceUrl}[0] // $entity->{properties}{wikipediaUrl}[0],
+    });
+}
+
 sub run {
     my ($self) = @_;
     my $args = $self->args;
@@ -92,8 +103,14 @@ sub run {
         }
 
         my $res = $tx->result;
+        if ($res->code == 429) {
+            my $retry_after = $res->headers->header('Retry-After') // 60;
+            $log->warn("SanctionsScreen: rate limited, sleeping ${retry_after}s");
+            sleep($retry_after);
+            next;
+        }
         unless ($res->code == 200) {
-            $log->warn("SanctionsScreen: HTTP $res->code for '$query'");
+            $log->warn("SanctionsScreen: HTTP " . $res->code . " for '$query'");
             next;
         }
 
@@ -115,8 +132,8 @@ sub run {
             my $id = $_uuid->create_str;
             $dbh->do(
                 q{INSERT INTO sanctions_matches
-                    (id, target_id, match_type, entity_name, matched_name, dataset, score, match_data, status)
-                  VALUES (?, ?, 'target', ?, ?, ?, ?, ?, 'pending')
+                    (id, target_id, person_id, match_type, entity_name, matched_name, dataset, score, match_data, status)
+                  VALUES (?, ?, NULL, 'target', ?, ?, ?, ?, ?, 'pending')
                   ON CONFLICT DO NOTHING},
                 undef,
                 $id, $target_id,
@@ -124,7 +141,7 @@ sub run {
                 $matched,
                 $dataset,
                 $score,
-                encode_json($entity),
+                _trim_entity($entity),
             );
             $inserted++;
         }
@@ -156,8 +173,14 @@ sub run {
         }
 
         my $res = $tx->result;
+        if ($res->code == 429) {
+            my $retry_after = $res->headers->header('Retry-After') // 60;
+            $log->warn("SanctionsScreen: rate limited, sleeping ${retry_after}s");
+            sleep($retry_after);
+            next;
+        }
         unless ($res->code == 200) {
-            $log->warn("SanctionsScreen: HTTP $res->code for person '$person->{canonical_name}'");
+            $log->warn("SanctionsScreen: HTTP " . $res->code . " for person '$person->{canonical_name}'");
             next;
         }
 
@@ -188,7 +211,7 @@ sub run {
                 $matched,
                 $dataset,
                 $score,
-                encode_json($entity),
+                _trim_entity($entity),
             );
             $inserted++;
         }

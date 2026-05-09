@@ -6,6 +6,7 @@ use utf8;
 use Mojo::Base 'Minion::Job', -signatures;
 
 use Data::UUID;
+use Digest::SHA qw(sha256_hex);
 
 my $_uuid = Data::UUID->new;
 
@@ -40,26 +41,37 @@ sub run {
 
     my @events = _parse_events($section->{content});
 
-    my $inserted = 0;
-    for my $evt (@events) {
-        my $id = $_uuid->create_str;
-        $dbh->do(
-            q{INSERT INTO event_timeline
-                (id, target_id, event_date, event_type, description, source_section, confidence)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT DO NOTHING},
-            undef,
-            $id, $target_id,
-            $evt->{event_date},
-            $evt->{event_type} // 'general',
-            $evt->{description},
-            'Section 6: Event Timeline',
-            $evt->{confidence} // 'medium',
-        );
-        $inserted++;
-    }
-
-    $log->info("TimelineExtract: inserted $inserted events for target $target_id");
+    $dbh->begin_work;
+    eval {
+        my $inserted = 0;
+        for my $evt (@events) {
+            my $id = $_uuid->create_str;
+            my $desc_hash = sha256_hex($evt->{description});
+            $dbh->do(
+                q{INSERT INTO event_timeline
+                    (id, target_id, event_date, event_type, description, description_hash, source_section, confidence)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  ON CONFLICT DO NOTHING},
+                undef,
+                $id, $target_id,
+                $evt->{event_date},
+                $evt->{event_type} // 'general',
+                $evt->{description},
+                $desc_hash,
+                'Section 6: Event Timeline',
+                $evt->{confidence} // 'medium',
+            );
+            $inserted++;
+        }
+        $dbh->commit;
+        $log->info("TimelineExtract: inserted $inserted events for target $target_id");
+        1;
+    } or do {
+        my $err = $@;
+        eval { $dbh->rollback; };
+        $log->error("TimelineExtract: failed for target $target_id: $err");
+        die $err;
+    };
 }
 
 sub _parse_events {
@@ -74,12 +86,12 @@ sub _parse_events {
         # Try to match date patterns: YYYY-MM-DD, DD/MM/YYYY, Month YYYY, etc.
         my ($date, $desc);
         if ($line =~ m{^(\d{4}-\d{2}-\d{2})\s*[-:]\s*(.+)$}) {
-            $date = $1;
+            $date = _is_valid_date($1) ? $1 : undef;
             $desc = $2;
         }
         elsif ($line =~ m{^(\d{1,2}/\d{1,2}/\d{4})\s*[-:]\s*(.+)$}) {
             my ($d, $m, $y) = split m{/}, $1;
-            $date = sprintf('%04d-%02d-%02d', $y, $m, $d);
+            $date = _is_valid_date(sprintf('%04d-%02d-%02d', $y, $m, $d)) ? sprintf('%04d-%02d-%02d', $y, $m, $d) : undef;
             $desc = $2;
         }
         elsif ($line =~ m{^([A-Za-z]+\s+\d{4})\s*[-:]\s*(.+)$}) {
@@ -87,7 +99,7 @@ sub _parse_events {
             $desc = $2;
         }
         elsif ($line =~ m{^(\d{4})\s*[-:]\s*(.+)$}) {
-            $date = "$1-01-01";
+            $date = ($1 >= 1000 && $1 <= 9999) ? "$1-01-01" : undef;
             $desc = $2;
         }
 
@@ -116,10 +128,21 @@ sub _month_year_to_date {
     if ($my =~ m{^([A-Za-z]+)\s+(\d{4})$}) {
         my $m = lc $1;
         my $y = $2;
-        my $n = $months{$m} // 1;
+        my $n = $months{$m};
+        return undef unless defined $n && $y >= 1000 && $y <= 9999;
         return sprintf('%04d-%02d-01', $y, $n);
     }
     return undef;
+}
+
+sub _is_valid_date {
+    my ($date) = @_;
+    return 0 unless defined $date && $date =~ m{^(\d{4})-(\d{2})-(\d{2})$};
+    my ($y, $m, $d) = ($1, $2, $3);
+    return 0 unless $y >= 1000 && $y <= 9999;
+    return 0 unless $m >= 1 && $m <= 12;
+    return 0 unless $d >= 1 && $d <= 31;
+    return 1;
 }
 
 sub _infer_type {

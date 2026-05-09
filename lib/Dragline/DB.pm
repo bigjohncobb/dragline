@@ -53,7 +53,11 @@ sub get_dbh {
 
     for my $stmt (@statements) {
         eval { $dbh->do($stmt) };
-        if ($@ && $stmt !~ /^\s*PRAGMA/i) {
+        if ($@) {
+            next if $stmt =~ /^\s*PRAGMA/i;
+            next if $@ =~ /duplicate column name/i;   # ALTER TABLE already applied
+            next if $@ =~ /already exists/i;          # CREATE TABLE/INDEX IF NOT EXISTS race
+            next if $@ =~ /no such table/i && $stmt =~ /^\s*DROP\s+TABLE/i;  # migration replay
             die "Schema error in statement: $stmt\n$@\n";
         }
     }

@@ -21,6 +21,8 @@ sub index ($c) {
         push @bind, '%' . lc($search) . '%';
     }
 
+    push @where, 'p.merged_into IS NULL';
+
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
 
     my $people = $c->db->selectall_arrayref(
@@ -124,7 +126,7 @@ sub show ($c) {
     );
 
     my $all_people = $c->db->selectall_arrayref(
-        q{SELECT id, canonical_name FROM people WHERE id != ? ORDER BY canonical_name ASC},
+        q{SELECT id, canonical_name FROM people WHERE id != ? AND merged_into IS NULL ORDER BY canonical_name ASC},
         { Slice => {} }, $id,
     );
 
@@ -216,6 +218,14 @@ sub delete ($c) {
     unless ($person) {
         $c->reply->not_found;
         return;
+    }
+
+    my ($merge_target_count) = $c->db->selectrow_array(
+        q{SELECT COUNT(*) FROM people WHERE merged_into = ?}, undef, $id,
+    );
+    if ($merge_target_count) {
+        $c->flash(error => 'Cannot delete: other people are merged into this person. Reassign or delete those records first.');
+        return $c->redirect_to("/people/$id");
     }
 
     $c->db->do(q{DELETE FROM people WHERE id = ?}, undef, $id);
@@ -381,6 +391,145 @@ sub delete_connection ($c) {
     $c->log_audit('delete_connection', 'person', $person_id, { conn_id => $conn_id });
     $c->flash(success => 'Connection removed.');
     $c->redirect_to("/people/$person_id");
+}
+
+sub merge ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->require_admin) {
+        return $c->redirect_to('/people/' . $c->param('id'));
+    }
+
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/people/' . $c->param('id'));
+    }
+
+    my $source_id = $c->param('id');
+    my $target_id = $c->param('target_person_id') // '';
+
+    unless (length($target_id)) {
+        $c->flash(error => 'Please select the person to merge into.');
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    if ($source_id eq $target_id) {
+        $c->flash(error => 'Cannot merge a person into itself.');
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    my $source = $c->db->selectrow_hashref(
+        q{SELECT * FROM people WHERE id = ?}, undef, $source_id,
+    );
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT * FROM people WHERE id = ?}, undef, $target_id,
+    );
+
+    unless ($source && $target) {
+        $c->flash(error => 'One or both people not found.');
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    if ($source->{merged_into}) {
+        $c->flash(error => 'Source person has already been merged and cannot be merged again.');
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    if ($target->{merged_into}) {
+        $c->flash(error => 'Target person has already been merged. Merge into the primary record instead.');
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    my $merge_note = $c->param('merge_note') // '';
+    if (length($merge_note) > 2000) {
+        $c->flash(error => 'Merge note exceeds maximum length of 2000 characters.');
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    my $roles_count = 0;
+    my $conn_count  = 0;
+
+    eval {
+        $c->db->begin_work;
+
+        my $ra = $c->db->do(
+            q{UPDATE person_roles SET person_id = ? WHERE person_id = ?},
+            undef, $target_id, $source_id,
+        );
+        $roles_count = ($ra && $ra ne '0E0') ? $ra : 0;
+
+        my $conns = $c->db->selectall_arrayref(
+            q{SELECT * FROM person_connections WHERE person_id_a = ? OR person_id_b = ?},
+            { Slice => {} }, $source_id, $source_id,
+        );
+
+        for my $conn (@$conns) {
+            my $a = $conn->{person_id_a};
+            my $b = $conn->{person_id_b};
+            my $type = $conn->{relationship_type};
+
+            $a = $target_id if $a eq $source_id;
+            $b = $target_id if $b eq $source_id;
+
+            if ($a eq $b) {
+                $c->db->do(q{DELETE FROM person_connections WHERE id = ?}, undef, $conn->{id});
+                next;
+            }
+
+            my ($new_a, $new_b) = ($a lt $b) ? ($a, $b) : ($b, $a);
+
+            my $dup = $c->db->selectrow_array(
+                q{SELECT 1 FROM person_connections WHERE person_id_a = ? AND person_id_b = ? AND relationship_type = ? AND id != ?},
+                undef, $new_a, $new_b, $type, $conn->{id},
+            );
+            if ($dup) {
+                $c->db->do(q{DELETE FROM person_connections WHERE id = ?}, undef, $conn->{id});
+                next;
+            }
+
+            $c->db->do(
+                q{UPDATE person_connections SET person_id_a = ?, person_id_b = ? WHERE id = ?},
+                undef, $new_a, $new_b, $conn->{id},
+            );
+            $conn_count++;
+        }
+
+        $c->db->do(
+            q{UPDATE people SET merged_into = ? WHERE id = ?},
+            undef, $target_id, $source_id,
+        );
+
+        my $log_id = $c->new_uuid;
+        my $user   = $c->current_user;
+        $c->db->do(
+            q{INSERT INTO person_merge_log (id, primary_person_id, merged_person_id, merged_person_name, roles_reassigned, connections_reassigned, performed_by, merge_note, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))},
+            undef,
+            $log_id, $target_id, $source_id, $source->{canonical_name},
+            $roles_count, $conn_count,
+            ($user ? $user->{id} : undef),
+            (length($merge_note) ? $merge_note : undef),
+        );
+
+        $c->db->commit;
+    };
+
+    if ($@) {
+        eval { $c->db->rollback };
+        $c->flash(error => 'Merge failed: ' . $@);
+        return $c->redirect_to("/people/$source_id");
+    }
+
+    $c->log_audit('merge', 'person', $source_id, {
+        target_person_id       => $target_id,
+        roles_reassigned       => $roles_count,
+        connections_reassigned => $conn_count,
+    });
+    $c->flash(success => 'Person merged successfully.');
+    $c->redirect_to("/people/$target_id");
 }
 
 1;

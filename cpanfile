@@ -17,3 +17,6 @@ requires 'Path::Tiny',                '>= 0.144';
 requires 'List::Util',                '>= 1.63';
 requires 'Scalar::Util',              '>= 1.63';
 requires 'POSIX',                     '>= 1.97';
+requires 'Net::DNS',                  '>= 1.0';
+requires 'Net::Whois::Raw',           '>= 2.0';
+requires 'Text::CSV',                 '>= 2.0';

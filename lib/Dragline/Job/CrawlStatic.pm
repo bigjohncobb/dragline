@@ -68,35 +68,38 @@ sub run {
 
     my $content_hash = sha256_hex($text // '');
 
-    # Check for exact duplicate by hash
-    my $existing_hash_id = $dbh->selectrow_array(
-        q{SELECT id FROM raw_content WHERE target_id=? AND content_hash=?},
-        undef, $target_id, $content_hash,
-    );
-    if ($existing_hash_id) {
-        if ($crawl_queue_id) {
-            $dbh->do(
-                q{UPDATE crawl_queue SET status='skipped', processed_at=datetime('now') WHERE id=?},
-                undef, $crawl_queue_id,
-            );
-        }
-        $log->info("Duplicate content, skipping: $url");
-        return;
-    }
-
-    # Check for content change at same URL
-    my $existing_by_url = $dbh->selectrow_hashref(
-        q{SELECT id, content_hash, content_text, word_count FROM raw_content
-          WHERE target_id=? AND source_url=? ORDER BY fetched_at DESC LIMIT 1},
-        undef, $target_id, $final_url,
-    );
-
     my $rc_id = $_uuid->create_str;
     my $ce_id = $_uuid->create_str;
-    my $is_update = $existing_by_url ? 1 : 0;
 
     eval {
         $dbh->begin_work;
+
+        # Check for exact duplicate by hash (inside transaction to prevent races)
+        my $existing_hash_id = $dbh->selectrow_array(
+            q{SELECT id FROM raw_content WHERE target_id=? AND content_hash=?},
+            undef, $target_id, $content_hash,
+        );
+        if ($existing_hash_id) {
+            if ($crawl_queue_id) {
+                $dbh->do(
+                    q{UPDATE crawl_queue SET status='skipped', processed_at=datetime('now') WHERE id=?},
+                    undef, $crawl_queue_id,
+                );
+            }
+            $dbh->commit;
+            $log->info("Duplicate content, skipping: $url");
+            return;
+        }
+
+        # Check for content change at same URL
+        my $existing_by_url = $dbh->selectrow_hashref(
+            q{SELECT id, content_hash, content_text, word_count FROM raw_content
+              WHERE target_id=? AND source_url=? ORDER BY fetched_at DESC LIMIT 1},
+            undef, $target_id, $final_url,
+        );
+
+        my $is_update = $existing_by_url ? 1 : 0;
+
         $dbh->do(
             q{INSERT INTO raw_content
                 (id, target_id, source_type, source_url, source_title,
@@ -223,27 +226,77 @@ sub _check_domain_blocklist {
     return $blocked;
 }
 
+my $_LCS_LINE_CAP = 500;
+
 sub _compute_diff {
     my ($old_text, $new_text) = @_;
     my @old_lines = split(/\n/, $old_text);
     my @new_lines = split(/\n/, $new_text);
+
+    # LCS is O(m*n); cap inputs to avoid memory/CPU blowup on large documents.
+    if (@old_lines > $_LCS_LINE_CAP || @new_lines > $_LCS_LINE_CAP) {
+        @old_lines = @old_lines[0 .. $_LCS_LINE_CAP - 1] if @old_lines > $_LCS_LINE_CAP;
+        @new_lines = @new_lines[0 .. $_LCS_LINE_CAP - 1] if @new_lines > $_LCS_LINE_CAP;
+    }
+
+    # Longest Common Subsequence (LCS) for proper diff alignment
+    my @lcs = _lcs(\@old_lines, \@new_lines);
     my $diff = '';
-    my $max = scalar(@old_lines) > scalar(@new_lines) ? scalar(@old_lines) : scalar(@new_lines);
-    for my $i (0..$max-1) {
-        my $o = $i < @old_lines ? $old_lines[$i] : undef;
-        my $n = $i < @new_lines ? $new_lines[$i] : undef;
-        if (!defined $o && defined $n) {
-            $diff .= "+ $n\n";
+    my ($o_idx, $n_idx) = (0, 0);
+
+    for my $op (@lcs) {
+        while ($o_idx < $op->{old_idx}) {
+            $diff .= "- " . $old_lines[$o_idx++] . "\n";
         }
-        elsif (defined $o && !defined $n) {
-            $diff .= "- $o\n";
+        while ($n_idx < $op->{new_idx}) {
+            $diff .= "+ " . $new_lines[$n_idx++] . "\n";
         }
-        elsif (defined $o && defined $n && $o ne $n) {
-            $diff .= "- $o\n+ $n\n";
+        if (defined $op->{old_idx} && defined $op->{new_idx}) {
+            $diff .= "  " . $old_lines[$o_idx++] . "\n";
+            $n_idx++;
         }
     }
+    while ($o_idx < @old_lines) {
+        $diff .= "- " . $old_lines[$o_idx++] . "\n";
+    }
+    while ($n_idx < @new_lines) {
+        $diff .= "+ " . $new_lines[$n_idx++] . "\n";
+    }
+
     $diff = '[no line-level differences]' unless length $diff;
     return $diff;
+}
+
+sub _lcs {
+    my ($a, $b) = @_;
+    my ($m, $n) = (scalar(@$a), scalar(@$b));
+    my @dp;
+    for my $i (0..$m) { $dp[$i][0] = 0 }
+    for my $j (0..$n) { $dp[0][$j] = 0 }
+
+    for my $i (1..$m) {
+        for my $j (1..$n) {
+            if ($a->[$i-1] eq $b->[$j-1]) {
+                $dp[$i][$j] = $dp[$i-1][$j-1] + 1;
+            } else {
+                $dp[$i][$j] = $dp[$i-1][$j] > $dp[$i][$j-1] ? $dp[$i-1][$j] : $dp[$i][$j-1];
+            }
+        }
+    }
+
+    my @result;
+    my ($i, $j) = ($m, $n);
+    while ($i > 0 && $j > 0) {
+        if ($a->[$i-1] eq $b->[$j-1]) {
+            unshift @result, { old_idx => $i-1, new_idx => $j-1 };
+            $i--; $j--;
+        } elsif ($dp[$i-1][$j] >= $dp[$i][$j-1]) {
+            $i--;
+        } else {
+            $j--;
+        }
+    }
+    return @result;
 }
 
 1;

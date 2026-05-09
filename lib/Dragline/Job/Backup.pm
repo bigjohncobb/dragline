@@ -120,17 +120,14 @@ sub _s3_upload {
     $host =~ s{^https?://}{};
     my $url = "$endpoint/$bucket/$key";
 
-    my $content = do {
-        open my $fh, '<:raw', $file_path or die "Cannot read $file_path: $!";
-        local $/;
-        <$fh>;
-    };
-
     my $date    = strftime('%Y%m%dT%H%M%SZ', gmtime());
     my $date_d  = substr($date, 0, 8);
     my $region  = 'us-east-1';
 
-    my $payload_hash = sha256_hex($content);
+    # Sign with UNSIGNED-PAYLOAD to stream the file without loading it into memory.
+    # AWS S3 accepts this when the request uses HTTPS and the bucket policy allows it.
+    # Non-AWS S3-compatible stores may require PayloadSigningEnabled=false or equivalent.
+    my $payload_hash = 'UNSIGNED-PAYLOAD';
 
     my %headers = (
         'host'                 => $host,
@@ -157,13 +154,15 @@ sub _s3_upload {
     $ua->connect_timeout(60);
     $ua->request_timeout(300);
 
+    # Stream file directly without loading into memory
+    my $asset = Mojo::Asset::File->new(path => $file_path);
     my $tx = $ua->put($url => {
         'Host'                 => $host,
         'X-Amz-Content-SHA256' => $payload_hash,
         'X-Amz-Date'           => $date,
         'Authorization'        => $auth,
-        'Content-Length'       => length($content),
-    } => $content);
+        'Content-Length'       => $asset->size,
+    } => $asset);
 
     my $res = $tx->result;
     unless ($res->is_success) {

@@ -87,51 +87,68 @@ sub run {
         die "ForwardAssess: invalid recommended_posture '$posture' for target $target_id";
     }
 
-    my $id = $_uuid->create_str;
-    $dbh->do(
-        q{INSERT INTO forward_assessments
-            (id, target_id, dossier_id, base_case, downside_case, upside_case,
-             recommended_posture, posture_rationale, executive_actions, watch_list, model_used)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(target_id) DO UPDATE SET
-            dossier_id          = excluded.dossier_id,
-            base_case           = excluded.base_case,
-            downside_case       = excluded.downside_case,
-            upside_case         = excluded.upside_case,
-            recommended_posture = excluded.recommended_posture,
-            posture_rationale   = excluded.posture_rationale,
-            executive_actions   = excluded.executive_actions,
-            watch_list          = excluded.watch_list,
-            model_used          = excluded.model_used,
-            updated_at          = datetime('now')},
-        undef,
-        $id, $target_id, $dossier_id,
-        encode_json($data->{base_case}),
-        encode_json($data->{downside_case}),
-        encode_json($data->{upside_case}),
-        $posture,
-        $data->{posture_rationale} // '',
-        encode_json($data->{executive_actions}),
-        (defined $data->{watch_list} ? encode_json($data->{watch_list}) : undef),
-        $provider // 'unknown',
-    );
+    for my $key (qw(base_case downside_case upside_case)) {
+        die "ForwardAssess: missing or invalid '$key' for target $target_id"
+            unless ref($data->{$key}) eq 'HASH';
+    }
+    die "ForwardAssess: missing or invalid 'executive_actions' for target $target_id"
+        unless ref($data->{executive_actions}) eq 'ARRAY';
 
-    my $target = $dbh->selectrow_hashref(
-        q{SELECT canonical_name FROM targets WHERE id = ?},
-        undef, $target_id,
-    );
-    my $canonical = $target ? $target->{canonical_name} : $target_id;
+    $dbh->begin_work;
+    eval {
+        my $id = $_uuid->create_str;
+        $dbh->do(
+            q{INSERT INTO forward_assessments
+                (id, target_id, dossier_id, base_case, downside_case, upside_case,
+                 recommended_posture, posture_rationale, executive_actions, watch_list, model_used)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(target_id) DO UPDATE SET
+                dossier_id          = excluded.dossier_id,
+                base_case           = excluded.base_case,
+                downside_case       = excluded.downside_case,
+                upside_case         = excluded.upside_case,
+                recommended_posture = excluded.recommended_posture,
+                posture_rationale   = excluded.posture_rationale,
+                executive_actions   = excluded.executive_actions,
+                watch_list          = excluded.watch_list,
+                model_used          = excluded.model_used,
+                updated_at          = datetime('now')},
+            undef,
+            $id, $target_id, $dossier_id,
+            encode_json($data->{base_case}),
+            encode_json($data->{downside_case}),
+            encode_json($data->{upside_case}),
+            $posture,
+            $data->{posture_rationale} // '',
+            encode_json($data->{executive_actions}),
+            (defined $data->{watch_list} ? encode_json($data->{watch_list}) : undef),
+            $provider // 'unknown',
+        );
 
-    my $ce_id = $_uuid->create_str;
-    $dbh->do(
-        q{INSERT INTO change_events
-            (id, target_id, event_type, summary, severity)
-          VALUES (?, ?, 'dossier_updated', ?, 'info')},
-        undef, $ce_id, $target_id,
-        "Forward assessment updated for $canonical — posture: $posture",
-    );
+        my $target = $dbh->selectrow_hashref(
+            q{SELECT canonical_name FROM targets WHERE id = ?},
+            undef, $target_id,
+        );
+        my $canonical = $target ? $target->{canonical_name} : $target_id;
 
-    $log->info("ForwardAssess: completed for target $target_id (posture: $posture)");
+        my $ce_id = $_uuid->create_str;
+        $dbh->do(
+            q{INSERT INTO change_events
+                (id, target_id, event_type, summary, severity)
+              VALUES (?, ?, 'dossier_updated', ?, 'info')},
+            undef, $ce_id, $target_id,
+            "Forward assessment updated for $canonical — posture: $posture",
+        );
+
+        $dbh->commit;
+        $log->info("ForwardAssess: completed for target $target_id (posture: $posture)");
+        1;
+    } or do {
+        my $err = $@;
+        eval { $dbh->rollback; };
+        $log->error("ForwardAssess: failed for target $target_id: $err");
+        die $err;
+    };
 }
 
 1;
