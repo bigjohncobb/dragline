@@ -33,15 +33,15 @@ WorkingDirectory=/opt/dragline
 PIDFile=/opt/dragline/hypnotoad.pid
 
 # ExecStart: launches Hypnotoad. Uses the local-lib binary installed by cpanm.
-ExecStart=/opt/dragline/local/bin/hypnotoad /opt/dragline/dragline.pl
+ExecStart=/usr/local/bin/hypnotoad /opt/dragline/dragline.pl
 
 # ExecReload: running `hypnotoad app.pl` when the server is already running sends
 # SIGUSR2, which triggers a zero-downtime hot reload (new workers, old workers drain).
 # Do NOT use `-s` here — that is the stop command, not the reload command.
-ExecReload=/opt/dragline/local/bin/hypnotoad /opt/dragline/dragline.pl
+ExecReload=/usr/local/bin/hypnotoad /opt/dragline/dragline.pl
 
 # ExecStop: `-s` sends SIGTERM for a graceful shutdown.
-ExecStop=/opt/dragline/local/bin/hypnotoad -s /opt/dragline/dragline.pl
+ExecStop=/usr/local/bin/hypnotoad -s /opt/dragline/dragline.pl
 
 Restart=on-failure
 RestartSec=5s
