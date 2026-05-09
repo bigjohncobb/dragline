@@ -63,7 +63,7 @@ sub run {
     ) // 500;
 
     if ($word_count < $threshold) {
-        $log->info("URL $url may need JS rendering, consider CrawlJS job");
+        $log->info("URL $url may need JS rendering, consider BucketJS job");
     }
 
     my $content_hash = sha256_hex($text // '');

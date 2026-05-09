@@ -112,7 +112,7 @@ sub fetch_via_service {
     my $tx = $ua->post("$crawl_service_url/crawl" => json => {url => $url});
 
     if (my $err = $tx->error) {
-        return (undef, undef, $url, 0, 'Crawl service unavailable') unless $err->{code};
+        return (undef, undef, $url, 0, $err->{message} // 'Crawl service unavailable');
     }
 
     my $data = $tx->res->json // {};
@@ -142,7 +142,7 @@ sub extract_pdf_via_service {
     );
 
     if (my $err = $tx->error) {
-        return (undef, undef, 'PDF extraction service unavailable') unless $err->{code};
+        return (undef, undef, $err->{message} // 'PDF extraction service unavailable');
     }
 
     my $data = $tx->res->json // {};

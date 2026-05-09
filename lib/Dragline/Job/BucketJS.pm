@@ -1,4 +1,4 @@
-package Dragline::Job::CrawlJS;
+package Dragline::Job::BucketJS;
 use strict;
 use warnings;
 use utf8;
@@ -16,8 +16,8 @@ sub run {
     my ($self) = @_;
     my $args = $self->args;
 
-    my $target_id      = $args->{target_id}     or die "CrawlJS: target_id required";
-    my $url            = $args->{url}            or die "CrawlJS: url required";
+    my $target_id      = $args->{target_id}     or die "BucketJS: target_id required";
+    my $url            = $args->{url}            or die "BucketJS: url required";
     my $crawl_queue_id = $args->{crawl_queue_id};
 
     my $dbh = $self->app->db_for_job;
@@ -43,7 +43,7 @@ sub run {
         undef,
     ) // '';
     unless (length $crawl_service_url) {
-        die "CrawlJS: Crawl service URL not configured";
+        die "BucketJS: Crawl service URL not configured";
     }
 
     my ($text, $title, $final_url, $word_count, $error) =
@@ -81,7 +81,7 @@ sub run {
             q{INSERT INTO raw_content
                 (id, target_id, source_type, source_url, source_title,
                  content_text, content_hash, word_count, fetched_at)
-              VALUES (?, ?, 'crawl_js', ?, ?, ?, ?, ?, datetime('now'))},
+              VALUES (?, ?, 'bucket_js', ?, ?, ?, ?, ?, datetime('now'))},
             undef,
             $rc_id, $target_id, $final_url, $title, $text, $content_hash, $word_count,
         );
@@ -97,7 +97,8 @@ sub run {
     };
     if ($@) {
         eval { $dbh->rollback };
-        die "CrawlJS: database error: $@";
+        _fail_queue($dbh, $crawl_queue_id, "database error: $@");
+        die "BucketJS: database error: $@";
     }
 
     if ($crawl_queue_id) {
@@ -112,7 +113,6 @@ sub run {
         undef, $target_id,
     );
 
-    # Mark existing dossier as stale if currently current
     eval {
         $dbh->do(
             q{UPDATE dossiers SET status='stale', updated_at=datetime('now')
@@ -123,7 +123,7 @@ sub run {
 
     $self->app->minion->enqueue(embed => [{raw_content_id => $rc_id}], {attempts => 3});
 
-    $log->info("CrawlJS: $url → $rc_id ($word_count words)");
+    $log->info("BucketJS: $url → $rc_id ($word_count words)");
 }
 
 sub _fail_queue {

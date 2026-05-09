@@ -59,7 +59,7 @@
       % for my $sq (@$saved_queries) {
       <li>
         % my $url = $sq->{search_type} eq 'semantic' ? '/search' : '/search/text';
-        % $url .= '?q=' . $sq->{query_text};
+        % use Mojo::Util qw(url_escape); $url .= '?q=' . url_escape($sq->{query_text});
         <a href="<%= $url %>"><%= $sq->{label} %></a>
       </li>
       % }

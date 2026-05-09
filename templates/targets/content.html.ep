@@ -35,7 +35,7 @@
       <option value="">All types</option>
       <option value="forge" <%= stash('source_type') eq 'forge' ? 'selected' : '' %>>Forge</option>
       <option value="crawl_static" <%= stash('source_type') eq 'crawl_static' ? 'selected' : '' %>>Crawl</option>
-      <option value="crawl_js" <%= stash('source_type') eq 'crawl_js' ? 'selected' : '' %>>Crawl JS</option>
+      <option value="bucket_js" <%= stash('source_type') eq 'bucket_js' ? 'selected' : '' %>>Bucket JS</option>
       <option value="pdf" <%= stash('source_type') eq 'pdf' ? 'selected' : '' %>>PDF</option>
       <option value="upload" <%= stash('source_type') eq 'upload' ? 'selected' : '' %>>Upload</option>
     </select>

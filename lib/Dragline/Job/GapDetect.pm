@@ -24,7 +24,7 @@ my @GAP_CHECKS = (
     },
     {
         type        => 'website_freeze',
-        sql         => q{SELECT MAX(created_at) FROM raw_content WHERE target_id = ? AND source_type IN ('crawl_static','crawl_js')},
+        sql         => q{SELECT MAX(created_at) FROM raw_content WHERE target_id = ? AND source_type IN ('crawl_static','bucket_js')},
         thresholds  => { low => 30, medium => 60, high => 90 },
         min_age     => 60,
     },

@@ -54,9 +54,14 @@ sub run {
         die "Embed: embedding failed for $raw_content_id";
     }
 
+    my $model          = $airgap ? 'nomic-embed-text' : 'text-embedding-v4';
+    my $expected_dims  = $airgap ? 768 : 1024;
+    my $dims           = scalar @$embedding;
+    unless ($dims == $expected_dims) {
+        die "Embed: unexpected dimension count $dims (expected $expected_dims) for model $model";
+    }
+
     my $blob  = pack('f*', @$embedding);
-    my $model = $airgap ? 'nomic-embed-text' : 'text-embedding-v4';
-    my $dims  = scalar @$embedding;
     my $id    = $_uuid->create_str;
 
     $dbh->do(

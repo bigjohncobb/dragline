@@ -12,7 +12,7 @@ use Mojo::Base 'Minion::Job', -signatures;
 my %TIER = (
     forge        => 30,
     crawl_static => 40,
-    crawl_js     => 40,
+    bucket_js    => 40,
     pdf          => 70,
     upload       => 60,
 );
