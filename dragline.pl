@@ -56,7 +56,7 @@ sub startup ($self) {
     $self->plugin('Minion', { SQLite => $minion_db_path });
 
     $self->minion->add_task(crawl_static   => 'Dragline::Job::CrawlStatic');
-    $self->minion->add_task(crawl_js       => 'Dragline::Job::CrawlJS');
+    $self->minion->add_task(bucket_js      => 'Dragline::Job::BucketJS');
     $self->minion->add_task(ingest_pdf     => 'Dragline::Job::IngestPDF');
     $self->minion->add_task(forge_sync     => 'Dragline::Job::ForgeSync');
     $self->minion->add_task(discover       => 'Dragline::Job::Discover');
@@ -133,11 +133,14 @@ sub startup ($self) {
             return 0;
         }
 
-        $c->db->do(
-            q{UPDATE api_keys SET last_used_at = datetime('now'),
-              request_count = request_count + 1 WHERE id = ?},
-            undef, $row->{id},
-        );
+        eval {
+            $c->db->do(
+                q{UPDATE api_keys SET last_used_at = datetime('now'),
+                  request_count = request_count + 1 WHERE id = ?},
+                undef, $row->{id},
+            );
+        };
+        $c->app->log->warn("API key counter update failed: $@") if $@;
         $c->stash(api_key_role => $row->{role});
         return 1;
     });
@@ -486,6 +489,24 @@ sub startup ($self) {
     $auth->post('/settings/webhooks/:id/delete')->to('Settings#delete_webhook');
 
     $auth->get('/targets/:id/report.txt')->to('Targets#report_txt');
+
+    $auth->get('/job-status')->to(cb => sub ($c) {
+        my @ids = grep { /^\d+$/ } split(/,/, $c->param('ids') // '');
+        @ids = @ids[0..19] if @ids > 20;
+        my @out;
+        for my $id (@ids) {
+            my $job = $c->minion->job($id);
+            next unless $job;
+            my $info = $job->info;
+            my $error;
+            if ($info->{state} eq 'failed') {
+                my $r = $info->{result};
+                $error = ref($r) eq 'HASH' ? ($r->{error} // 'Job failed') : 'Job failed';
+            }
+            push @out, { id => "$id", state => $info->{state}, task => $info->{task}, error => $error };
+        }
+        $c->render(json => \@out);
+    });
 
     # Admin routes
     my $admin = $r->under('/admin')->to(cb => sub ($c) {

@@ -283,9 +283,133 @@
     }, true);
   }
 
+  /* ── 7. Live Job Status Poller ───────────────────────────────────────── */
+
+  var TASK_LABELS = {
+    crawl_static:     'Crawl',
+    discover:         'Discovery',
+    forge_sync:       'Forge sync',
+    synthesise:       'Generate dossier',
+    embed:            'Embed',
+    ingest_pdf:       'Ingest PDF',
+    doc_intelligence: 'Extract intelligence',
+  };
+
+  function htmlEsc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function JobPoller(jobs) {
+    this.jobs  = jobs;
+    this.timer = null;
+    this.panel = null;
+    this.list  = null;
+  }
+
+  JobPoller.prototype.start = function () {
+    this.panel = document.getElementById('job-status-panel');
+    this.list  = document.getElementById('job-panel-list');
+    if (!this.panel || !this.list) return;
+
+    var self = this;
+    this.jobs.forEach(function (job) { self.renderItem(job, 'inactive', null); });
+    this.panel.hidden = false;
+
+    this.panel.addEventListener('click', function (e) {
+      if (e.target.closest('.job-panel-close')) {
+        self.panel.hidden = true;
+        clearTimeout(self.timer);
+      }
+    });
+
+    this.poll();
+  };
+
+  JobPoller.prototype.poll = function () {
+    var self = this;
+    var ids = this.jobs.map(function (j) { return j.id; }).join(',');
+    if (!ids) return;
+
+    fetch('/job-status?ids=' + encodeURIComponent(ids), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (results) { self.handleResults(results); })
+      .catch(function () { self.schedule(false); });
+  };
+
+  JobPoller.prototype.handleResults = function (results) {
+    var self = this;
+    var infoById = {};
+    results.forEach(function (r) { infoById[r.id] = r; });
+
+    var anyRunning = false;
+    this.jobs = this.jobs.filter(function (job) {
+      var info = infoById[job.id];
+      if (!info) { anyRunning = true; return true; }
+
+      self.renderItem(job, info.state, info.error);
+
+      if (info.state === 'inactive' || info.state === 'active') {
+        anyRunning = true;
+        return true;
+      }
+      if (info.state === 'finished') {
+        setTimeout(function () {
+          var el = document.getElementById('job-item-' + job.id);
+          if (el) el.remove();
+          self.maybeHide();
+        }, 4000);
+        return false;
+      }
+      return true;  // keep failed jobs visible
+    });
+
+    this.schedule(anyRunning);
+  };
+
+  JobPoller.prototype.schedule = function (fast) {
+    var self = this;
+    clearTimeout(this.timer);
+    if (!this.jobs.length) return;
+    this.timer = setTimeout(function () { self.poll(); }, fast ? 3000 : 10000);
+  };
+
+  JobPoller.prototype.renderItem = function (job, state, error) {
+    var elId = 'job-item-' + job.id;
+    var el   = document.getElementById(elId);
+    if (!el) {
+      el = document.createElement('li');
+      el.id = elId;
+      this.list.appendChild(el);
+    }
+    var icon  = state === 'finished' ? '✓' : state === 'failed' ? '✗' : state === 'active' ? '⚙' : '⏳';
+    var label = job.label || TASK_LABELS[job.task] || job.task;
+    el.className = 'job-panel-item job-state-' + state;
+    el.innerHTML = '<span class="job-icon">' + icon + '</span>'
+                 + '<span class="job-label">' + htmlEsc(label) + '</span>'
+                 + (error ? '<span class="job-error">' + htmlEsc(String(error)) + '</span>' : '');
+  };
+
+  JobPoller.prototype.maybeHide = function () {
+    if (this.list && this.list.children.length === 0) {
+      this.panel.hidden = true;
+    }
+  };
+
+  function initJobPoller() {
+    var meta = document.querySelector('meta[name="pending-jobs"]');
+    if (!meta || !meta.content) return;
+    var jobs;
+    try { jobs = JSON.parse(meta.content); } catch (e) { return; }
+    if (!jobs || !jobs.length) return;
+    new JobPoller(jobs).start();
+  }
+
   function init() {
     initTheme();
     initDossierSections();
+    initJobPoller();
   }
 
   if (document.readyState === 'loading') {

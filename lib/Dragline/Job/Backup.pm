@@ -73,13 +73,16 @@ sub run {
         $log->info("Backup: uploaded $key to S3 ($size bytes)");
     };
     if ($@) {
-        $dbh->do(
-            q{UPDATE backup_logs
-              SET status='failed', error_message=?, completed_at=datetime('now')
-              WHERE id=?},
-            undef, $@, $backup_id,
-        );
-        $log->error("Backup failed: $@");
+        my $err = $@;
+        eval {
+            $dbh->do(
+                q{UPDATE backup_logs
+                  SET status='failed', error_message=?, completed_at=datetime('now')
+                  WHERE id=?},
+                undef, $err, $backup_id,
+            );
+        };
+        $log->error("Backup failed: $err");
     }
 
     unlink $tmp_path if -e $tmp_path;

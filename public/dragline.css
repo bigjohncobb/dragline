@@ -2121,3 +2121,106 @@ textarea {
     font-size: 1.8rem;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/* Job Status Panel                                                        */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+.job-panel {
+  position: fixed;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  width: 300px;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.job-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--accent-muted);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.job-panel-title {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--accent-base);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.job-panel-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 var(--space-1);
+}
+
+.job-panel-close:hover { color: var(--text-primary); }
+
+.job-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.job-panel-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.job-panel-item:last-child { border-bottom: none; }
+
+.job-icon {
+  flex-shrink: 0;
+  width: 1.2em;
+  text-align: center;
+  margin-top: 0.1em;
+  display: inline-block;
+}
+
+.job-label {
+  flex: 1;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.job-error {
+  width: 100%;
+  color: var(--text-danger);
+  font-size: var(--text-xs);
+  margin-top: var(--space-1);
+  word-break: break-all;
+}
+
+.job-state-inactive .job-icon { color: var(--accent-base); animation: job-pulse 1.5s ease-in-out infinite; }
+.job-state-active   .job-icon { color: var(--status-active); animation: job-spin 1.2s linear infinite; }
+.job-state-finished .job-icon { color: var(--status-active); }
+.job-state-failed   .job-icon { color: var(--text-danger); }
+
+@keyframes job-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+@keyframes job-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

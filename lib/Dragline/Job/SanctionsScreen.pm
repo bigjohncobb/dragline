@@ -134,7 +134,7 @@ sub run {
                 q{INSERT INTO sanctions_matches
                     (id, target_id, person_id, match_type, entity_name, matched_name, dataset, score, match_data, status)
                   VALUES (?, ?, NULL, 'target', ?, ?, ?, ?, ?, 'pending')
-                  ON CONFLICT DO NOTHING},
+                  ON CONFLICT(target_id, person_id, entity_name, matched_name, dataset) DO NOTHING},
                 undef,
                 $id, $target_id,
                 $query,
@@ -204,7 +204,7 @@ sub run {
                 q{INSERT INTO sanctions_matches
                     (id, target_id, person_id, match_type, entity_name, matched_name, dataset, score, match_data, status)
                   VALUES (?, ?, ?, 'person', ?, ?, ?, ?, ?, 'pending')
-                  ON CONFLICT DO NOTHING},
+                  ON CONFLICT(target_id, person_id, entity_name, matched_name, dataset) DO NOTHING},
                 undef,
                 $id, $target_id, $person->{id},
                 $person->{canonical_name},

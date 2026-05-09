@@ -149,7 +149,7 @@ sub add_to_collection ($c) {
         $c->db->do(
             q{INSERT INTO bookmark_collection_items (collection_id, bookmark_id, added_at)
               VALUES (?, ?, datetime('now'))
-              ON CONFLICT DO NOTHING},
+              ON CONFLICT(collection_id, bookmark_id) DO NOTHING},
             undef, $collection_id, $bookmark_id,
         );
     };

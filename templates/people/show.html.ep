@@ -12,7 +12,7 @@
   <div class="page-actions">
     <a href="/people/<%= $person->{id} %>/edit" class="btn btn-secondary btn-sm">Edit</a>
     <form method="post" action="/people/<%= $person->{id} %>/delete" class="inline-form"
-          onsubmit="return confirm('Delete <%= $person->{canonical_name} %>?')">
+          onsubmit="return confirm('Delete <%= j($person->{canonical_name}) %>?')">
       <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
       <button type="submit" class="btn btn-danger btn-sm">Delete</button>
     </form>
@@ -136,7 +136,7 @@
   <details class="add-form-collapsible">
     <summary>Merge into another person</summary>
     <form method="post" action="/people/<%= $person->{id} %>/merge" class="edit-form edit-form-compact"
-          onsubmit="return confirm('Merge <%= $person->{canonical_name} %> into the selected person? This cannot be undone.')">
+          onsubmit="return confirm('Merge <%= j($person->{canonical_name}) %> into the selected person? This cannot be undone.')">
       <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
       <div class="field-row">
         <select name="target_person_id" required class="select-sm">

@@ -22,7 +22,7 @@
         <a href="/admin/users/<%= $u->{id} %>/edit" class="btn btn-xs btn-secondary">Edit</a>
         % if (!$current || $current->{id} ne $u->{id}) {
         <form method="post" action="/admin/users/<%= $u->{id} %>/delete" class="inline-form"
-              onsubmit="return confirm('Deactivate user <%= $u->{username} %>?')">
+              onsubmit="return confirm('Deactivate user <%= j($u->{username}) %>?')">
           <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
           <button type="submit" class="btn btn-xs btn-danger">Deactivate</button>
         </form>

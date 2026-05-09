@@ -6,6 +6,7 @@ use utf8;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Encode qw(decode);
+use Dragline::Storage;
 
 sub index ($c) {
     my $id   = $c->param('id');
@@ -29,7 +30,7 @@ sub index ($c) {
     my @where = ('target_id = ?');
     my @bind  = ($id);
 
-    if ($source_type && grep { $_ eq $source_type } qw(forge crawl_static crawl_js pdf upload)) {
+    if ($source_type && grep { $_ eq $source_type } qw(forge crawl_static bucket_js pdf upload)) {
         push @where, 'source_type = ?';
         push @bind, $source_type;
     }
@@ -119,7 +120,11 @@ sub queue_crawl ($c) {
         undef, $queue_id, $id, $url,
     );
 
-    $c->minion->enqueue(crawl_static => [{ target_id => $id, url => $url }]);
+    my $job_id = $c->minion->enqueue(crawl_static => [{ target_id => $id, url => $url }]);
+    my $pending = $c->session('pending_jobs') // [];
+    push @$pending, { id => "$job_id", task => 'crawl_static', label => "Crawl: $url" };
+    splice(@$pending, 0, scalar(@$pending) - 15) if @$pending > 15;
+    $c->session(pending_jobs => $pending);
 
     $c->flash(success => 'URL queued for crawling.');
     $c->redirect_to("/targets/$id/content");
@@ -166,7 +171,8 @@ sub upload ($c) {
     if ($magic =~ /^%PDF-/) {
         my $tmp_path = "/tmp/dragline_upload_" . $c->new_uuid . ".pdf";
         $upload->move_to($tmp_path);
-        my $job_id = $c->minion->enqueue(ingest_pdf => [{ target_id => $id, path => $tmp_path }]);
+        my $filename = $upload->filename || 'upload.pdf';
+        my $job_id = $c->minion->enqueue(ingest_pdf => [{ target_id => $id, file_path => $tmp_path, filename => $filename }]);
         $c->flash(success => "PDF queued for ingestion (job $job_id).");
         $c->redirect_to("/targets/$id/content");
         return;
@@ -201,6 +207,27 @@ sub upload ($c) {
         return;
     }
 
+    # Dual-write to object storage if configured (non-fatal on failure)
+    my $storage_settings = Dragline::Storage::build_settings(sub { $c->get_setting($_[0]) });
+    if ($storage_settings) {
+        my $s3_key = "content/$id/$content_id.txt";
+        my ($ok, $err) = Dragline::Storage::upload_bytes(
+            $storage_settings, $s3_key,
+            Encode::encode('UTF-8', $text),
+            'text/plain; charset=utf-8',
+        );
+        if ($ok) {
+            eval {
+                $c->db->do(
+                    q{UPDATE raw_content SET storage_key=? WHERE id=?},
+                    undef, $s3_key, $content_id,
+                );
+            };
+        } else {
+            $c->app->log->warn("Storage upload failed for $content_id: $err");
+        }
+    }
+
     $c->flash(success => 'Content uploaded successfully.');
     $c->redirect_to("/targets/$id/content");
 }
@@ -217,7 +244,11 @@ sub queue_discover ($c) {
     }
 
     my $id = $c->param('id');
-    $c->minion->enqueue(discover => [{ target_id => $id }]);
+    my $job_id = $c->minion->enqueue(discover => [{ target_id => $id }]);
+    my $pending = $c->session('pending_jobs') // [];
+    push @$pending, { id => "$job_id", task => 'discover', label => 'Discovery' };
+    splice(@$pending, 0, scalar(@$pending) - 15) if @$pending > 15;
+    $c->session(pending_jobs => $pending);
     $c->flash(success => 'Discovery job queued.');
     $c->redirect_to("/targets/$id/content");
 }
@@ -234,7 +265,11 @@ sub queue_forge_sync ($c) {
     }
 
     my $id = $c->param('id');
-    $c->minion->enqueue(forge_sync => [{ target_id => $id }]);
+    my $job_id = $c->minion->enqueue(forge_sync => [{ target_id => $id }]);
+    my $pending = $c->session('pending_jobs') // [];
+    push @$pending, { id => "$job_id", task => 'forge_sync', label => 'Forge sync' };
+    splice(@$pending, 0, scalar(@$pending) - 15) if @$pending > 15;
+    $c->session(pending_jobs => $pending);
     $c->flash(success => 'Forge sync queued.');
     $c->redirect_to("/targets/$id/content");
 }

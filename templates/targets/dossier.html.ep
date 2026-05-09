@@ -25,6 +25,15 @@
   % }
 </div>
 
+% } elsif ($dossier->{status} eq 'failed') {
+<div class="status-banner status-error">
+  <p>Dossier generation failed. The job may have encountered an LLM error or timed out.</p>
+  <form method="post" action="/targets/<%= $t->{id} %>/dossier/generate" class="inline-form" style="margin-top:0.5rem">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-primary btn-sm">Retry Generation</button>
+  </form>
+</div>
+
 % } else {
 % my $status = $dossier->{status};
 

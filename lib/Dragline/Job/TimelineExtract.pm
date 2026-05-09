@@ -51,7 +51,7 @@ sub run {
                 q{INSERT INTO event_timeline
                     (id, target_id, event_date, event_type, description, description_hash, source_section, confidence)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                  ON CONFLICT DO NOTHING},
+                  ON CONFLICT(target_id, event_date, description_hash) DO NOTHING},
                 undef,
                 $id, $target_id,
                 $evt->{event_date},

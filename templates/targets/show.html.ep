@@ -44,7 +44,7 @@
     </form>
     % }
     <form method="post" action="/targets/<%= $t->{id} %>/delete" class="inline-form"
-          onsubmit="return confirm('Delete target <%= $t->{canonical_name} %>? This cannot be undone.')">
+          onsubmit="return confirm('Delete target <%= j($t->{canonical_name}) %>? This cannot be undone.')">
       <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
       <button type="submit" class="btn btn-danger btn-sm">Delete</button>
     </form>

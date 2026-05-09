@@ -91,7 +91,11 @@ sub generate ($c) {
         );
     }
 
-    $c->minion->enqueue(synthesise => [{ target_id => $id }]);
+    my $job_id = $c->minion->enqueue(synthesise => [{ target_id => $id }]);
+    my $pending = $c->session('pending_jobs') // [];
+    push @$pending, { id => "$job_id", task => 'synthesise', label => 'Generate dossier' };
+    splice(@$pending, 0, scalar(@$pending) - 15) if @$pending > 15;
+    $c->session(pending_jobs => $pending);
     $c->flash(success => 'Dossier generation started.');
     $c->redirect_to("/targets/$id/dossier");
 }

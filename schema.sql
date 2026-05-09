@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS raw_content (
     id                TEXT PRIMARY KEY,
     target_id         TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     source_type       TEXT NOT NULL
-        CHECK (source_type IN ('forge','crawl_static','crawl_js','pdf','upload')),
+        CHECK (source_type IN ('forge','crawl_static','bucket_js','pdf','upload')),
     source_url        TEXT,
     source_title      TEXT,
     content_text      TEXT NOT NULL,
@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS raw_content (
     significance_tier INTEGER
         CHECK (significance_tier IS NULL OR (significance_tier >= 1 AND significance_tier <= 163)),
     word_count        INTEGER,
+    storage_key       TEXT,
     fetched_at        DATETIME,
     created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
     UNIQUE (target_id, content_hash)
@@ -1043,4 +1044,8 @@ INSERT OR IGNORE INTO settings (key, value, is_encrypted, updated_at) VALUES
     ('backup_s3_bucket',              '',                       0, datetime('now')),
     ('backup_s3_access_key',          '',                       1, datetime('now')),
     ('backup_s3_secret_key',          '',                       1, datetime('now')),
-    ('backup_retention_days',         '30',                     0, datetime('now'));
+    ('backup_retention_days',         '30',                     0, datetime('now')),
+    ('content_s3_endpoint',           '',                       0, datetime('now')),
+    ('content_s3_bucket',             '',                       0, datetime('now')),
+    ('content_s3_access_key',         '',                       1, datetime('now')),
+    ('content_s3_secret_key',         '',                       1, datetime('now'));

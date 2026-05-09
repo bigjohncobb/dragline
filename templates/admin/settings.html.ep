@@ -176,6 +176,38 @@
     </div>
   </fieldset>
 
+  <fieldset class="settings-group">
+    <legend>Content Storage (DigitalOcean Spaces / S3)</legend>
+    <p class="field-hint">When configured, uploaded content is dual-written to object storage. Leave blank to store in database only.</p>
+
+    <div class="field">
+      <label for="content_s3_endpoint">Endpoint URL</label>
+      <input type="text" id="content_s3_endpoint" name="content_s3_endpoint"
+             value="<%= $s->{content_s3_endpoint}{value} // '' %>"
+             placeholder="https://nyc3.digitaloceanspaces.com">
+    </div>
+
+    <div class="field">
+      <label for="content_s3_bucket">Bucket name</label>
+      <input type="text" id="content_s3_bucket" name="content_s3_bucket"
+             value="<%= $s->{content_s3_bucket}{value} // '' %>">
+    </div>
+
+    <div class="field">
+      <label for="content_s3_access_key">Access key</label>
+      <input type="password" id="content_s3_access_key" name="content_s3_access_key"
+             value="<%= $s->{content_s3_access_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+    </div>
+
+    <div class="field">
+      <label for="content_s3_secret_key">Secret key</label>
+      <input type="password" id="content_s3_secret_key" name="content_s3_secret_key"
+             value="<%= $s->{content_s3_secret_key}{value} // '' %>"
+             autocomplete="off" placeholder="Paste new value to update">
+    </div>
+  </fieldset>
+
   <div class="form-actions">
     <button type="submit" class="btn btn-primary">Save settings</button>
   </div>

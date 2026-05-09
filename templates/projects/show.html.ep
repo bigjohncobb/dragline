@@ -6,7 +6,7 @@
   <div class="page-actions">
     <a href="/projects/<%= $p->{id} %>/edit" class="btn btn-secondary">Edit</a>
     <form method="post" action="/projects/<%= $p->{id} %>/delete" class="inline-form"
-          onsubmit="return confirm('Delete project <%= $p->{name} %>?')">
+          onsubmit="return confirm('Delete project <%= j($p->{name}) %>?')">
       <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
       <button type="submit" class="btn btn-danger">Delete</button>
     </form>

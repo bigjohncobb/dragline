@@ -169,7 +169,7 @@ sub upload_content ($c) {
     my $url         = $body->{url}         // '';
     my $source_type = $body->{source_type} // '';
 
-    my @valid_types = qw(crawl_static crawl_js pdf forge upload);
+    my @valid_types = qw(crawl_static bucket_js pdf forge upload);
     unless (grep { $_ eq $source_type } @valid_types) {
         $c->render(json => { error => 'Invalid source_type' }, status => 400);
         return;
@@ -187,7 +187,9 @@ sub upload_content ($c) {
 
     my $job_id;
     if ($source_type eq 'pdf') {
-        $job_id = $c->minion->enqueue(ingest_pdf => [{ target_id => $id, url => $url }]);
+        $job_id = $c->minion->enqueue(ingest_pdf   => [{ target_id => $id, url => $url }]);
+    } elsif ($source_type eq 'bucket_js') {
+        $job_id = $c->minion->enqueue(bucket_js    => [{ target_id => $id, url => $url }]);
     } else {
         $job_id = $c->minion->enqueue(crawl_static => [{ target_id => $id, url => $url }]);
     }

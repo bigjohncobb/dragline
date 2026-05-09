@@ -43,12 +43,12 @@
       <td class="td-action">
         % if ($k->{active}) {
         <form method="post" action="/admin/api-keys/<%= $k->{id} %>/rotate" class="inline-form"
-              onsubmit="return confirm('Rotate key <%= $k->{name} %>? Old key will stop working immediately.')">
+              onsubmit="return confirm('Rotate key <%= j($k->{name}) %>? Old key will stop working immediately.')">
           <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
           <button type="submit" class="btn btn-xs btn-warning">Rotate</button>
         </form>
         <form method="post" action="/admin/api-keys/<%= $k->{id} %>/delete" class="inline-form"
-              onsubmit="return confirm('Revoke key <%= $k->{name} %>?')">
+              onsubmit="return confirm('Revoke key <%= j($k->{name}) %>?')">
           <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
           <button type="submit" class="btn btn-xs btn-danger">Revoke</button>
         </form>

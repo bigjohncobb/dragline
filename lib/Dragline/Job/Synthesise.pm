@@ -209,11 +209,11 @@ sub run {
 
             $self->app->minion->enqueue('forward_assess',
                 [{ target_id => $target_id }],
-                { priority => 3 }
+                { priority => 3, attempts => 3 }
             );
             $self->app->minion->enqueue('timeline_extract',
                 [{ target_id => $target_id }],
-                { priority => 3 }
+                { priority => 3, attempts => 3 }
             );
 
             $log->info("Synthesise: dossier $dossier_id complete for target $target_id (version $version_num)");
@@ -229,7 +229,7 @@ sub run {
         my $err = $@;
         eval {
             $dbh->do(
-                q{UPDATE dossiers SET status='draft', updated_at=datetime('now') WHERE id=?},
+                q{UPDATE dossiers SET status='failed', updated_at=datetime('now') WHERE id=?},
                 undef, $dossier_id,
             );
         };

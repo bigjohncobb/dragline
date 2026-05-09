@@ -262,6 +262,12 @@ sub add_role ($c) {
     my $ended_at   = $c->param('ended_at')   || undef;
     my $source_url = $c->param('source_url') || undef;
 
+    if ($source_url && $source_url !~ m{^https?://}i) {
+        $c->flash(error => 'Source URL must begin with http:// or https://');
+        $c->redirect_to("/people/$person_id");
+        return;
+    }
+
     eval {
         $c->db->do(
             q{INSERT INTO person_roles
@@ -349,6 +355,12 @@ sub add_connection ($c) {
     my $conn_id    = $c->new_uuid;
     my $notes      = $c->param('notes')      || undef;
     my $source_url = $c->param('source_url') || undef;
+
+    if ($source_url && $source_url !~ m{^https?://}i) {
+        $c->flash(error => 'Source URL must begin with http:// or https://');
+        $c->redirect_to("/people/$person_id");
+        return;
+    }
 
     eval {
         $c->db->do(

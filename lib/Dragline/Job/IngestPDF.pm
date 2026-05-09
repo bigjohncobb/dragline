@@ -9,6 +9,7 @@ use Dragline::Crawl;
 use Data::UUID;
 use Digest::SHA qw(sha256_hex);
 use Path::Tiny;
+use Mojo::UserAgent;
 
 my $_uuid = Data::UUID->new;
 
@@ -17,16 +18,43 @@ sub run {
     my $args = $self->args;
 
     my $target_id  = $args->{target_id}  or die "IngestPDF: target_id required";
-    my $file_path  = $args->{file_path}  or die "IngestPDF: file_path required";
-    my $filename   = $args->{filename}   or die "IngestPDF: filename required";
-    my $source_url = $args->{source_url};
+    my $source_url = $args->{source_url} // $args->{url};
 
     my $dbh = $self->app->db_for_job;
     my $log = $self->app->log;
 
-    my $file_bytes = eval { path($file_path)->slurp_raw };
-    if ($@) {
-        die "IngestPDF: cannot read $file_path: $@";
+    my ($file_path, $filename, $file_bytes, $_tmp_downloaded);
+
+    if ($args->{file_path}) {
+        # Uploaded file: read from local path
+        $file_path = $args->{file_path};
+        $filename  = $args->{filename} or die "IngestPDF: filename required when file_path is given";
+        $file_bytes = eval { path($file_path)->slurp_raw };
+        if ($@) {
+            unlink $file_path if -e $file_path;
+            die "IngestPDF: cannot read $file_path: $@";
+        }
+    } elsif ($args->{url}) {
+        # URL-based: download to tmp first
+        my $url = $args->{url};
+        $source_url = $url;
+        ($filename) = $url =~ m{/([^/?#]+\.pdf)}i;
+        $filename //= 'document.pdf';
+        my $ua = Mojo::UserAgent->new;
+        $ua->connect_timeout(30);
+        $ua->request_timeout(60);
+        my $tx = $ua->get($url);
+        if (my $err = $tx->error) {
+            die "IngestPDF: download failed for $url: " . ($err->{message} // 'error');
+        }
+        $file_bytes = $tx->res->body;
+        # Write to tmp so extract_pdf_via_service can stream it
+        $file_path = "/tmp/dragline_pdf_" . Data::UUID->new->create_str . ".pdf";
+        eval { path($file_path)->spew_raw($file_bytes) };
+        if ($@) { die "IngestPDF: cannot write tmp file: $@" }
+        $_tmp_downloaded = 1;
+    } else {
+        die "IngestPDF: either file_path or url is required";
     }
 
     my $crawl_service_url = $dbh->selectrow_array(

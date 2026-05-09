@@ -23,7 +23,7 @@
       <td><%= substr($d->{created_at}, 0, 16) %></td>
       <td class="td-action">
         <form method="post" action="/admin/domain-blocklist/<%= $d->{id} %>/delete" class="inline-form"
-              onsubmit="return confirm('Unblock domain <%= $d->{domain} %>?')">
+              onsubmit="return confirm('Unblock domain <%= j($d->{domain}) %>?')">
           <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
           <button type="submit" class="btn btn-xs btn-danger">Unblock</button>
         </form>

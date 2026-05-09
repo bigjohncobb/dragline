@@ -17,11 +17,14 @@ my @KNOWN_SETTINGS = qw(
     adversarial_check_enabled  adversarial_check_sample_rate
     backup_enabled  backup_schedule  backup_s3_endpoint  backup_s3_bucket
     backup_s3_access_key  backup_s3_secret_key  backup_retention_days
+    content_s3_endpoint  content_s3_bucket
+    content_s3_access_key  content_s3_secret_key
 );
 
 my %ENCRYPTED_SETTINGS = map { $_ => 1 } qw(
     anthropic_api_key  qwen_api_key  alibaba_api_key  brave_api_key
     forge_api_key  backup_s3_access_key  backup_s3_secret_key
+    content_s3_access_key  content_s3_secret_key
 );
 
 sub health ($c) {
@@ -588,52 +591,53 @@ sub import_targets ($c) {
     my ($imported, $skipped) = (0, 0);
     my $dbh = $c->db;
 
-    for my $line (@lines) {
-        next unless $line =~ /\S/;
-        unless ($csv->parse($line)) {
-            $skipped++;
-            next;
-        }
-        my @fields = $csv->fields;
-        my $name = $fields[$col_idx{canonical_name}] // '';
-        $name =~ s/^\s+|\s+$//g;
-        my $project_id = $fields[$col_idx{project_id}] // '';
-        $project_id =~ s/^\s+|\s+$//g;
+    # Pre-validate all rows and collect inserts; abort entirely on any DB error
+    eval {
+        $dbh->begin_work;
 
-        unless (length($name) && length($project_id)) {
-            $skipped++;
-            next;
-        }
+        for my $line (@lines) {
+            next unless $line =~ /\S/;
+            unless ($csv->parse($line)) {
+                $skipped++;
+                next;
+            }
+            my @fields = $csv->fields;
+            my $name = $fields[$col_idx{canonical_name}] // '';
+            $name =~ s/^\s+|\s+$//g;
+            my $project_id = $fields[$col_idx{project_id}] // '';
+            $project_id =~ s/^\s+|\s+$//g;
 
-        my $project = $dbh->selectrow_array(q{SELECT 1 FROM projects WHERE id = ?}, undef, $project_id);
-        unless ($project) {
-            $skipped++;
-            next;
-        }
+            unless (length($name) && length($project_id)) {
+                $skipped++;
+                next;
+            }
 
-        my $existing = $dbh->selectrow_array(
-            q{SELECT 1 FROM targets WHERE project_id = ? AND canonical_name_lower = ?},
-            undef, $project_id, lc($name),
-        );
-        if ($existing) {
-            $skipped++;
-            next;
-        }
+            my $project = $dbh->selectrow_array(q{SELECT 1 FROM projects WHERE id = ?}, undef, $project_id);
+            unless ($project) {
+                $skipped++;
+                next;
+            }
 
-        my $id       = $c->new_uuid;
-        my $mon_id   = $c->new_uuid;
-        my $entity_type = exists $col_idx{entity_type} ? ($fields[$col_idx{entity_type}] // 'company') : 'company';
-        my @valid_entity_types = qw(company exchange regulator agency individual other);
-        unless (grep { $_ eq $entity_type } @valid_entity_types) {
-            $entity_type = 'company';
-        }
-        my $country     = exists $col_idx{country}     ? ($fields[$col_idx{country}] // undef) : undef;
-        my $jurisdiction= exists $col_idx{jurisdiction} ? ($fields[$col_idx{jurisdiction}] // undef) : undef;
-        my $primary_domain = exists $col_idx{primary_domain} ? ($fields[$col_idx{primary_domain}] // undef) : undef;
-        my $notes       = exists $col_idx{notes}       ? ($fields[$col_idx{notes}] // undef) : undef;
+            my $existing = $dbh->selectrow_array(
+                q{SELECT 1 FROM targets WHERE project_id = ? AND canonical_name_lower = ?},
+                undef, $project_id, lc($name),
+            );
+            if ($existing) {
+                $skipped++;
+                next;
+            }
 
-        eval {
-            $dbh->begin_work;
+            my $id       = $c->new_uuid;
+            my $mon_id   = $c->new_uuid;
+            my $entity_type = exists $col_idx{entity_type} ? ($fields[$col_idx{entity_type}] // 'company') : 'company';
+            my @valid_entity_types = qw(company exchange regulator agency individual other);
+            unless (grep { $_ eq $entity_type } @valid_entity_types) {
+                $entity_type = 'company';
+            }
+            my $country        = exists $col_idx{country}         ? ($fields[$col_idx{country}]         // undef) : undef;
+            my $jurisdiction   = exists $col_idx{jurisdiction}    ? ($fields[$col_idx{jurisdiction}]    // undef) : undef;
+            my $primary_domain = exists $col_idx{primary_domain}  ? ($fields[$col_idx{primary_domain}]  // undef) : undef;
+            my $notes          = exists $col_idx{notes}           ? ($fields[$col_idx{notes}]           // undef) : undef;
 
             $dbh->do(
                 q{INSERT INTO targets
@@ -687,13 +691,15 @@ sub import_targets ($c) {
                 }
             }
 
-            $dbh->commit;
             $imported++;
-        };
-        if ($@) {
-            eval { $dbh->rollback };
-            $skipped++;
         }
+
+        $dbh->commit;
+    };
+    if ($@) {
+        eval { $dbh->rollback };
+        $c->flash(error => "Import failed and was rolled back: $@");
+        return $c->redirect_to('/admin/import-targets');
     }
 
     $c->log_audit('import_targets', 'target', undef, { imported => $imported, skipped => $skipped });
