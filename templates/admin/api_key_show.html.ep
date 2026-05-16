@@ -1,0 +1,32 @@
+% layout 'default';
+% title 'New API Key — Admin — Dragline';
+% my $key_value = stash('api_key_value');
+% my $key_name  = stash('api_key_name') // '';
+<div class="page-header">
+  <h1>API Key Created</h1>
+</div>
+
+<div class="status-banner status-generating">
+  <p><strong><%= $key_name %></strong></p>
+  <p class="text-warning">Copy this key now — it will not be shown again.</p>
+  <div class="key-display">
+    <code id="new-key-value" style="font-size:1.1rem"><%= $key_value %></code>
+    <button type="button" class="btn btn-sm btn-secondary" id="copy-key-btn">Copy</button>
+  </div>
+</div>
+
+<form method="post" action="/admin/api-keys/new-key/dismiss" class="inline-form" style="margin-top:1rem">
+  <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+  <button type="submit" class="btn btn-primary">I have copied my key — return to list</button>
+</form>
+
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  document.getElementById('copy-key-btn').addEventListener('click', function() {
+    var key = document.getElementById('new-key-value').textContent;
+    navigator.clipboard.writeText(key).then(function() {
+      document.getElementById('copy-key-btn').textContent = 'Copied!';
+    });
+  });
+})();
+</script>

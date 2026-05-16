@@ -2,7 +2,10 @@
 % title 'People — Dragline';
 <div class="page-header">
   <h1>People</h1>
-  <a href="/people/new" class="btn btn-primary">New Person</a>
+  <div>
+    <a href="/people/new" class="btn btn-primary">New Person</a>
+    <a href="/people/export" class="btn btn-secondary">Export CSV</a>
+  </div>
 </div>
 
 <form method="get" action="/people" class="search-form">
@@ -17,9 +20,12 @@
 % if (!@$people) {
 <p class="empty-state">No people records yet. <a href="/people/new">Add one.</a></p>
 % } else {
+<form method="post" action="/people/bulk-delete" id="people-bulk-form">
+<input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
 <table class="data-table">
   <thead>
     <tr>
+      <th><input type="checkbox" id="select-all-people" title="Select all"></th>
       <th>Name</th>
       <th>Nationality</th>
       <th>Roles</th>
@@ -29,6 +35,7 @@
   <tbody>
   % for my $p (@$people) {
     <tr>
+      <td><input type="checkbox" name="person_ids" value="<%= $p->{id} %>" class="person-checkbox"></td>
       <td><a href="/people/<%= $p->{id} %>"><%= $p->{canonical_name} %></a></td>
       <td><%= $p->{nationality} // '—' %></td>
       <td><%= $p->{role_count} // 0 %></td>
@@ -37,4 +44,23 @@
   % }
   </tbody>
 </table>
+
+<div class="bulk-actions">
+  <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete selected people?')">Delete selected</button>
+</div>
+</form>
+
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  var selectAll = document.getElementById('select-all-people');
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      var checkboxes = document.querySelectorAll('.person-checkbox');
+      for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].checked = selectAll.checked;
+      }
+    });
+  }
+})();
+</script>
 % }

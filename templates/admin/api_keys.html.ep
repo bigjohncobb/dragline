@@ -6,26 +6,6 @@
   <h1>API Keys</h1>
 </div>
 
-% if (my $new_key = flash('new_api_key')) {
-<div class="flash flash-success flash-key">
-  <p><strong>Copy this key now — it will not be shown again.</strong></p>
-  <div class="key-display">
-    <code id="new-key-value"><%= $new_key %></code>
-    <button type="button" class="btn btn-sm btn-secondary" id="copy-key-btn">Copy</button>
-  </div>
-</div>
-<script nonce="<%= $c->stash('csp_nonce') // '' %>">
-(function() {
-  document.getElementById('copy-key-btn').addEventListener('click', function() {
-    var key = document.getElementById('new-key-value').textContent;
-    navigator.clipboard.writeText(key).then(function() {
-      document.getElementById('copy-key-btn').textContent = 'Copied!';
-    });
-  });
-})();
-</script>
-% }
-
 % if (@$keys) {
 <table class="data-table">
   <thead>

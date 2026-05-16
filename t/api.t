@@ -44,9 +44,9 @@ my $api_key = do {
         _csrf_token => $csrf,
     })->status_is(302);
 
-    $t->get_ok('/admin/api-keys')->status_is(200);
+    $t->get_ok('/admin/api-keys/new-key')->status_is(200);
     my $body = $t->tx->res->body;
-    $body =~ /id="new-key-value">([a-f0-9]+)<\/code>/
+    $body =~ /id="new-key-value"[^>]*>([a-f0-9]+)<\/code>/
         or die "Could not extract API key from admin page";
     $1;
 };

@@ -10,6 +10,10 @@ sub semantic ($c) {
     $query =~ s/^\s+|\s+$//g;
 
     my $target_id = $c->param('target_id') // '';
+    my $page  = $c->param('page') // 1;
+    $page     = 1 unless $page =~ /^\d+$/ && $page > 0;
+    my $per_page = 20;
+    my $offset   = ($page - 1) * $per_page;
 
     my $dbh = $c->db;
     my $saved_queries = $dbh->selectall_arrayref(
@@ -20,7 +24,7 @@ sub semantic ($c) {
     );
 
     unless (length($query)) {
-        $c->stash(results => [], query => '', target_id => $target_id, saved_queries => $saved_queries);
+        $c->stash(results => [], query => '', target_id => $target_id, saved_queries => $saved_queries, page => 1, total => 0, per_page => $per_page);
         $c->render(template => 'search/semantic');
         return;
     }
@@ -37,14 +41,13 @@ sub semantic ($c) {
             : $row->{value};
     };
 
-    # Get embedding for the query
     my $embedding = eval {
         require Dragline::Embed;
         Dragline::Embed::embed($dbh, $settings_getter, $query);
     };
 
     unless ($embedding && ref($embedding) eq 'ARRAY' && @$embedding) {
-        $c->stash(results => [], query => $query, target_id => $target_id, error => 'Failed to generate embedding for query.');
+        $c->stash(results => [], query => $query, target_id => $target_id, error => 'Failed to generate embedding for query.', saved_queries => $saved_queries, page => 1, total => 0, per_page => $per_page);
         $c->render(template => 'search/semantic');
         return;
     }
@@ -64,6 +67,13 @@ sub semantic ($c) {
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
 
+    my ($total) = $dbh->selectrow_array(
+        qq{SELECT COUNT(*) FROM raw_content_embeddings rce
+           JOIN raw_content rc ON rc.id = rce.raw_content_id
+           $where_sql},
+        undef, @bind,
+    );
+
     my $results = $dbh->selectall_arrayref(
         qq{SELECT
             rc.id, rc.target_id, rc.source_type, rc.source_url, rc.source_title,
@@ -75,26 +85,38 @@ sub semantic ($c) {
           JOIN targets t ON t.id = rc.target_id
           $where_sql
           ORDER BY distance ASC
-          LIMIT 20},
-        { Slice => {} }, @bind,
+          LIMIT ? OFFSET ?},
+        { Slice => {} }, @bind, $per_page, $offset,
     );
 
-    # Truncate content for display
     for my $r (@$results) {
         my $text = $r->{content_text} // '';
         if (length($text) > 300) {
-            $text = substr($text, 0, 300) . '…';
+            $text = substr($text, 0, 300) . "\x{2026}";
         }
         $r->{snippet} = $text;
     }
 
-    $c->stash(results => $results, query => $query, target_id => $target_id, saved_queries => $saved_queries);
+    $c->stash(
+        results       => $results,
+        query         => $query,
+        target_id     => $target_id,
+        saved_queries => $saved_queries,
+        page          => $page,
+        total         => $total,
+        per_page      => $per_page,
+    );
     $c->render(template => 'search/semantic');
 }
 
 sub text ($c) {
     my $query = $c->param('q') // '';
     $query =~ s/^\s+|\s+$//g;
+
+    my $page  = $c->param('page') // 1;
+    $page     = 1 unless $page =~ /^\d+$/ && $page > 0;
+    my $per_page = 20;
+    my $offset   = ($page - 1) * $per_page;
 
     my $dbh = $c->db;
     my $saved_queries = $dbh->selectall_arrayref(
@@ -105,23 +127,23 @@ sub text ($c) {
     );
 
     unless (length($query)) {
-        $c->stash(results => [], query => '', saved_queries => $saved_queries);
+        $c->stash(results => [], query => '', saved_queries => $saved_queries, page => 1, total => 0, per_page => $per_page);
         $c->render(template => 'search/text');
         return;
     }
 
     my $like = '%' . $query . '%';
     my @results;
-    my $limit = 20;
 
     my $targets = $dbh->selectall_arrayref(
         q{SELECT id, canonical_name, entity_type, country, notes
           FROM targets
           WHERE canonical_name LIKE ? OR notes LIKE ?
           ORDER BY canonical_name ASC
-          LIMIT ?},
-        { Slice => {} }, $like, $like, $limit,
+          LIMIT 50},
+        { Slice => {} }, $like, $like,
     );
+    my $target_count = scalar(@$targets);
     for my $t (@$targets) {
         push @results, {
             type    => 'target',
@@ -138,9 +160,10 @@ sub text ($c) {
           WHERE merged_into IS NULL
             AND (canonical_name LIKE ? OR bio_summary LIKE ?)
           ORDER BY canonical_name ASC
-          LIMIT ?},
-        { Slice => {} }, $like, $like, $limit,
+          LIMIT 50},
+        { Slice => {} }, $like, $like,
     );
+    my $people_count = scalar(@$people);
     for my $p (@$people) {
         push @results, {
             type    => 'person',
@@ -158,22 +181,28 @@ sub text ($c) {
           JOIN targets t ON t.id = et.target_id
           WHERE et.description LIKE ?
           ORDER BY et.event_date DESC
-          LIMIT ?},
-        { Slice => {} }, $like, $limit,
+          LIMIT 50},
+        { Slice => {} }, $like,
     );
+    my $events_count = scalar(@$events);
     for my $e (@$events) {
         push @results, {
             type    => 'event',
             id      => $e->{id},
-            title   => ($e->{target_name} // '') . ' — ' . ($e->{event_date} // ''),
+            title   => ($e->{target_name} // '') . " \x{2014} " . ($e->{event_date} // ''),
             subtype => $e->{event_type},
             snippet => $e->{description},
         };
     }
 
-    # Try FTS5 first, fallback to LIKE
+    my $content_total = 0;
     my $content;
     eval {
+        ($content_total) = $dbh->selectrow_array(
+            q{SELECT COUNT(*) FROM raw_content_fts
+              WHERE raw_content_fts MATCH ?},
+            undef, $query,
+        );
         $content = $dbh->selectall_arrayref(
             q{SELECT rc.id, rc.target_id, rc.source_type, rc.source_title, rc.source_url,
                      rc.content_text, t.canonical_name AS target_name
@@ -182,8 +211,8 @@ sub text ($c) {
               JOIN targets t ON t.id = rc.target_id
               WHERE raw_content_fts MATCH ?
               ORDER BY rank
-              LIMIT ?},
-            { Slice => {} }, $query, $limit,
+              LIMIT ? OFFSET ?},
+            { Slice => {} }, $query, $per_page, $offset,
         );
     };
     if ($@) {
@@ -194,14 +223,19 @@ sub text ($c) {
               JOIN targets t ON t.id = rc.target_id
               WHERE rc.content_text LIKE ? OR rc.source_title LIKE ?
               ORDER BY rc.created_at DESC
-              LIMIT ?},
-            { Slice => {} }, $like, $like, $limit,
+              LIMIT ? OFFSET ?},
+            { Slice => {} }, $like, $like, $per_page, $offset,
+        );
+        ($content_total) = $dbh->selectrow_array(
+            q{SELECT COUNT(*) FROM raw_content
+              WHERE content_text LIKE ? OR source_title LIKE ?},
+            undef, $like, $like,
         );
     }
     for my $r (@$content) {
         my $snippet = $r->{content_text} // '';
         if (length($snippet) > 200) {
-            $snippet = substr($snippet, 0, 200) . '…';
+            $snippet = substr($snippet, 0, 200) . "\x{2026}";
         }
         push @results, {
             type    => 'content',
@@ -212,7 +246,20 @@ sub text ($c) {
         };
     }
 
-    $c->stash(results => \@results, query => $query, saved_queries => $saved_queries);
+    my $total = $target_count + $people_count + $events_count + $content_total;
+
+    $c->stash(
+        results       => \@results,
+        query         => $query,
+        saved_queries => $saved_queries,
+        page          => $page,
+        total         => $total,
+        per_page      => $per_page,
+        target_count  => $target_count,
+        people_count  => $people_count,
+        events_count  => $events_count,
+        content_total => $content_total,
+    );
     $c->render(template => 'search/text');
 }
 

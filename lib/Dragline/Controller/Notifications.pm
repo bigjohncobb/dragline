@@ -60,6 +60,67 @@ sub mark_all_read ($c) {
     $c->redirect_to('/notifications');
 }
 
+sub dismiss ($c) {
+    unless ($c->validate_csrf) {
+        $c->flash(error => 'Invalid CSRF token');
+        $c->redirect_to('/notifications');
+        return;
+    }
+
+    my $id = $c->param('id');
+    my $user_id = $c->current_user->{id};
+
+    $c->db->do(
+        q{DELETE FROM user_notifications WHERE id = ? AND user_id = ?},
+        undef, $id, $user_id,
+    );
+
+    my $back = $c->req->headers->referer // '/notifications';
+    $c->redirect_to($back);
+}
+
+sub bulk_action ($c) {
+    unless ($c->validate_csrf) {
+        $c->flash(error => 'Invalid CSRF token');
+        $c->redirect_to('/notifications');
+        return;
+    }
+
+    my $action = $c->param('bulk_action') // '';
+    my @ids = $c->param('notif_ids') ? @{$c->every_param('notif_ids')} : ();
+    my $user_id = $c->current_user->{id};
+
+    unless (@ids) {
+        $c->flash(error => 'No notifications selected.');
+        $c->redirect_to('/notifications');
+        return;
+    }
+
+    my $placeholders = join(', ', ('?') x @ids);
+
+    if ($action eq 'mark_read') {
+        $c->db->do(
+            qq{UPDATE user_notifications SET is_read = 1
+              WHERE id IN ($placeholders) AND user_id = ?},
+            undef, @ids, $user_id,
+        );
+        $c->flash(success => scalar(@ids) . ' notifications marked read.');
+    }
+    elsif ($action eq 'dismiss') {
+        $c->db->do(
+            qq{DELETE FROM user_notifications
+              WHERE id IN ($placeholders) AND user_id = ?},
+            undef, @ids, $user_id,
+        );
+        $c->flash(success => scalar(@ids) . ' notifications dismissed.');
+    }
+    else {
+        $c->flash(error => 'Unknown bulk action.');
+    }
+
+    $c->redirect_to('/notifications');
+}
+
 sub preferences_form ($c) {
     my $user_id = $c->current_user->{id};
 

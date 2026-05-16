@@ -16,19 +16,51 @@
 % if (!@$notifications) {
 <p class="empty-state">No notifications yet.</p>
 % } else {
+<form method="post" action="/notifications/bulk" id="notif-bulk-form">
+<input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
 <div class="notification-list">
   % for my $n (@$notifications) {
   <div class="notification-item <%= $n->{is_read} ? 'read' : 'unread' %>">
+    <input type="checkbox" name="notif_ids" value="<%= $n->{id} %>" class="notif-checkbox" style="margin-right:0.5rem">
+    <span class="badge"><%= $n->{event_type} %></span>
+    <span class="notification-subject"><%= $n->{message} %></span>
+    <span class="meta"><%= $n->{created_at} %></span>
     % if (!$n->{is_read}) {
     <form method="post" action="/notifications/<%= $n->{id} %>/read" class="inline-form">
       <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
       <button type="submit" class="btn btn-sm">Mark read</button>
     </form>
     % }
-    <span class="badge"><%= $n->{event_type} %></span>
-    <span class="notification-subject"><%= $n->{message} %></span>
-    <span class="meta"><%= $n->{created_at} %></span>
+    <form method="post" action="/notifications/<%= $n->{id} %>/dismiss" class="inline-form">
+      <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn btn-sm btn-danger">Dismiss</button>
+    </form>
   </div>
   % }
 </div>
+
+<div class="bulk-actions">
+  <input type="checkbox" id="select-all-notifs" title="Select all">
+  <select name="bulk_action" class="select-sm">
+    <option value="">Bulk action…</option>
+    <option value="mark_read">Mark read</option>
+    <option value="dismiss">Dismiss</option>
+  </select>
+  <button type="submit" class="btn btn-sm btn-secondary">Apply</button>
+</div>
+</form>
+
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  var selectAll = document.getElementById('select-all-notifs');
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      var checkboxes = document.querySelectorAll('.notif-checkbox');
+      for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].checked = selectAll.checked;
+      }
+    });
+  }
+})();
+</script>
 % }

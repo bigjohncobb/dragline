@@ -66,15 +66,19 @@
   </form>
 
   <a href="/targets/<%= $t->{id} %>/watched-sources" class="btn btn-secondary">Watched Sources</a>
+  <a href="/targets/<%= $t->{id} %>/content/export?source_type=<%= stash('source_type') %>&date_from=<%= stash('date_from') %>&date_to=<%= stash('date_to') %>&min_tier=<%= stash('min_tier') %>" class="btn btn-secondary btn-sm">Export CSV</a>
 </div>
 
 % my $content = stash('content') // [];
 % if (!@$content) {
 <p class="empty-state">No content yet. Queue a URL to crawl or upload a file.</p>
 % } else {
+<form method="post" action="/targets/<%= $t->{id} %>/content/bulk" id="bulk-form">
+<input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
 <table class="data-table">
   <thead>
     <tr>
+      <th><input type="checkbox" id="select-all" title="Select all"></th>
       <th>Type</th>
       <th>Title / URL</th>
       <th>Words</th>
@@ -89,6 +93,7 @@
     % my $label = $rc->{source_title} // $rc->{source_url} // '';
     % $label = length($label) > 70 ? substr($label, 0, 70) . '…' : $label;
     <tr>
+      <td><input type="checkbox" name="content_ids" value="<%= $rc->{id} %>" class="bulk-checkbox"></td>
       <td><span class="badge badge-source"><%= $rc->{source_type} %></span></td>
       <td class="td-label">
         % if ($rc->{source_url}) {
@@ -121,6 +126,30 @@
   % }
   </tbody>
 </table>
+
+<div class="bulk-actions">
+  <select name="bulk_action" class="select-sm">
+    <option value="">Bulk action…</option>
+    <option value="delete">Delete selected</option>
+    <option value="reprocess">Reprocess selected</option>
+  </select>
+  <button type="submit" class="btn btn-sm btn-secondary">Apply</button>
+</div>
+</form>
+
+<script nonce="<%= $c->stash('csp_nonce') // '' %>">
+(function() {
+  var selectAll = document.getElementById('select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', function() {
+      var checkboxes = document.querySelectorAll('.bulk-checkbox');
+      for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].checked = selectAll.checked;
+      }
+    });
+  }
+})();
+</script>
 
 % if ($pages > 1) {
 <div class="pagination">

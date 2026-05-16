@@ -162,6 +162,129 @@ sub add_to_collection ($c) {
     $c->redirect_to('/bookmarks');
 }
 
+sub show_collection ($c) {
+    my $coll_id  = $c->param('coll_id');
+    my $user_id  = $c->current_user->{id};
+
+    my $collection = $c->db->selectrow_hashref(
+        q{SELECT * FROM bookmark_collections WHERE id = ? AND user_id = ?},
+        undef, $coll_id, $user_id,
+    );
+    unless ($collection) {
+        $c->reply->not_found;
+        return;
+    }
+
+    my $items = $c->db->selectall_arrayref(
+        q{SELECT b.*, rc.source_title, rc.source_url, t.canonical_name AS target_name
+          FROM bookmark_collection_items bci
+          JOIN bookmarks b ON b.id = bci.bookmark_id
+          JOIN raw_content rc ON rc.id = b.raw_content_id
+          JOIN targets t ON t.id = rc.target_id
+          WHERE bci.collection_id = ?
+          ORDER BY bci.added_at DESC},
+        { Slice => {} }, $coll_id,
+    );
+
+    my $collections = $c->db->selectall_arrayref(
+        q{SELECT bc.*,
+                 (SELECT COUNT(*) FROM bookmark_collection_items WHERE collection_id = bc.id) AS item_count
+          FROM bookmark_collections bc
+          WHERE bc.user_id = ?
+          ORDER BY bc.name ASC},
+        { Slice => {} }, $user_id,
+    );
+
+    $c->stash(
+        collection  => $collection,
+        items       => $items,
+        collections => $collections,
+    );
+    $c->render(template => 'bookmarks/collection');
+}
+
+sub remove_from_collection ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $coll_id     = $c->param('coll_id');
+    my $bookmark_id = $c->param('bookmark_id');
+    my $user_id     = $c->current_user->{id};
+
+    my $ok = $c->db->selectrow_array(
+        q{SELECT 1 FROM bookmark_collections WHERE id = ? AND user_id = ?},
+        undef, $coll_id, $user_id,
+    );
+    unless ($ok) {
+        $c->render(text => 'Not found', status => 404);
+        return;
+    }
+
+    $c->db->do(
+        q{DELETE FROM bookmark_collection_items WHERE collection_id = ? AND bookmark_id = ?},
+        undef, $coll_id, $bookmark_id,
+    );
+
+    $c->flash(success => 'Removed from collection.');
+    $c->redirect_to("/bookmarks/collections/$coll_id");
+}
+
+sub rename_collection ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $coll_id = $c->param('coll_id');
+    my $user_id = $c->current_user->{id};
+    my $new_name = $c->param('name') // '';
+    $new_name =~ s/^\s+|\s+$//g;
+
+    unless (length($new_name)) {
+        $c->flash(error => 'Collection name is required.');
+        $c->redirect_to("/bookmarks/collections/$coll_id");
+        return;
+    }
+
+    eval {
+        $c->db->do(
+            q{UPDATE bookmark_collections SET name = ? WHERE id = ? AND user_id = ?},
+            undef, $new_name, $coll_id, $user_id,
+        );
+    };
+    if ($@) {
+        if ($@ =~ /UNIQUE constraint failed/) {
+            $c->flash(error => 'A collection with that name already exists.');
+        } else {
+            $c->flash(error => 'Failed to rename collection.');
+        }
+    } else {
+        $c->flash(success => 'Collection renamed.');
+    }
+
+    $c->redirect_to("/bookmarks/collections/$coll_id");
+}
+
+sub delete_collection ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $coll_id = $c->param('coll_id');
+    my $user_id = $c->current_user->{id};
+
+    $c->db->do(
+        q{DELETE FROM bookmark_collections WHERE id = ? AND user_id = ?},
+        undef, $coll_id, $user_id,
+    );
+
+    $c->flash(success => 'Collection deleted.');
+    $c->redirect_to('/bookmarks');
+}
+
 sub saved_queries ($c) {
     my $user_id = $c->current_user->{id};
 

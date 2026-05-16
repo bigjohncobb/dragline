@@ -39,7 +39,7 @@
     % } else {
     <ul class="list-plain">
       % for my $col (@$collections) {
-      <li><%= $col->{name} %> (<%= $col->{item_count} %>)</li>
+      <li><a href="/bookmarks/collections/<%= $col->{id} %>"><%= $col->{name} %> (<%= $col->{item_count} %>)</a></li>
       % }
     </ul>
     % }

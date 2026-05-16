@@ -20,6 +20,18 @@
   <a href="/admin/crawl-queue" class="badge <%= $filter eq '' ? 'badge-active' : '' %>">All</a>
 </div>
 
+<div class="bulk-actions" style="margin-bottom:0.5rem">
+  <form method="post" action="/admin/crawl-queue/retry-all-failed" class="inline-form">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-sm btn-secondary">Retry all failed</button>
+  </form>
+  <form method="post" action="/admin/crawl-queue/delete-completed" class="inline-form"
+        onsubmit="return confirm('Delete all completed and skipped crawl items?')">
+    <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn btn-sm btn-danger">Delete completed</button>
+  </form>
+</div>
+
 % if (!@$items) {
 <p class="empty-state">No crawl queue items.</p>
 % } else {

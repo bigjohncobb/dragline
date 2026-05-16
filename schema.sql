@@ -318,6 +318,17 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     success      INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_hash ON password_reset_tokens(token_hash);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id          TEXT PRIMARY KEY,
     user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -911,6 +922,7 @@ ALTER TABLE raw_content         ADD COLUMN updated_at DATETIME NOT NULL DEFAULT 
 ALTER TABLE webhook_configs    ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
 ALTER TABLE webhook_deliveries ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
 ALTER TABLE user_notifications ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
+ALTER TABLE dossiers          ADD COLUMN minion_job_id TEXT;
 
 -- Recreate person_merge_log with RESTRICT FKs so merge audit records survive
 -- independently of the referenced person rows being deleted.

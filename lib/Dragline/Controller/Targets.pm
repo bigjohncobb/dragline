@@ -707,6 +707,51 @@ sub update_monitoring ($c) {
     $c->redirect_to("/targets/$id");
 }
 
+sub run_monitoring_job ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id') . '/monitoring');
+    }
+
+    my $id       = $c->param('id');
+    my $job_type = $c->param('job_type') // '';
+
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT * FROM targets WHERE id = ?}, undef, $id,
+    );
+    unless ($target) {
+        $c->reply->not_found;
+        return;
+    }
+
+    my %task_map = (
+        forge_sync => { task => 'forge_sync',    label => 'Forge sync' },
+        crawl      => { task => 'crawl_static',   label => 'Crawl site' },
+        discover   => { task => 'discover',       label => 'Discovery' },
+    );
+
+    my $cfg = $task_map{$job_type};
+    unless ($cfg) {
+        $c->flash(error => 'Unknown job type.');
+        $c->redirect_to("/targets/$id/monitoring");
+        return;
+    }
+
+    my $job_id = $c->minion->enqueue($cfg->{task} => [{ target_id => $id }]);
+    my $pending = $c->session('pending_jobs') // [];
+    push @$pending, { id => "$job_id", task => $cfg->{task}, label => $cfg->{label} };
+    splice(@$pending, 0, scalar(@$pending) - 15) if @$pending > 15;
+    $c->session(pending_jobs => $pending);
+    $c->log_audit('run_monitoring_job', 'target', $id, { job_type => $job_type, job_id => "$job_id" });
+    $c->flash(success => "$cfg->{label} job queued (job $job_id).");
+    $c->redirect_to("/targets/$id/monitoring");
+}
+
 sub enrich_domains ($c) {
     unless ($c->validate_csrf) {
         $c->render(text => 'Forbidden', status => 403);

@@ -3,6 +3,10 @@
 % my $results = stash('results') // [];
 % my $query   = stash('query')   // '';
 % my $saved_queries = stash('saved_queries') // [];
+% my $page     = stash('page')     // 1;
+% my $total    = stash('total')    // 0;
+% my $per_page = stash('per_page') // 20;
+% my $pages    = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 1;
 
 <div class="page-header">
   <h1>Text Search</h1>
@@ -26,7 +30,7 @@
     % }
 
     % if (length($query)) {
-    <p class="results-count"><%= scalar(@$results) %> results for "<%= $query %>"</p>
+    <p class="results-count">Showing <%= scalar(@$results) %> results<% if ($total) { %> of <%= $total %> total<% } %> for "<%= $query %>"</p>
 
     <div class="search-results">
     %   for my $r (@$results) {
@@ -47,6 +51,18 @@
       </div>
     %   }
     </div>
+
+    % if ($pages > 1) {
+    <div class="pagination">
+      % if ($page > 1) {
+      <a href="?q=<%= $query %>&page=<%= $page-1 %>" class="btn btn-xs btn-secondary">← Prev</a>
+      % }
+      <span class="page-info">Page <%= $page %> of <%= $pages %></span>
+      % if ($page < $pages) {
+      <a href="?q=<%= $query %>&page=<%= $page+1 %>" class="btn btn-xs btn-secondary">Next →</a>
+      % }
+    </div>
+    % }
     % }
   </div>
 

@@ -120,6 +120,14 @@ sub run {
 
         # ---- Reduce phase ----
         for my $section (@SECTIONS) {
+            # Honour cancellation: exit if dossier status is no longer 'generating'
+            my $current_status = $dbh->selectrow_array(
+                q{SELECT status FROM dossiers WHERE id = ?}, undef, $dossier_id,
+            );
+            unless ($current_status && $current_status eq 'generating') {
+                $log->info("Synthesise: dossier $dossier_id cancelled, exiting");
+                return 1;
+            }
             my $step_name = "reduce_section_$section->{number}";
             if (Dragline::Job::Steps::is_done($dbh, 'dossier', $dossier_id, $step_name)
                 && !$force_set{ $section->{number} }) {

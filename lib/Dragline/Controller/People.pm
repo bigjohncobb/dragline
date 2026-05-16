@@ -40,6 +40,49 @@ sub index ($c) {
     $c->render(template => 'people/list');
 }
 
+sub export_csv ($c) {
+    my $search = $c->param('search') // '';
+    $search =~ s/^\s+|\s+$//g;
+
+    my @where = ('p.merged_into IS NULL');
+    my @bind;
+    if (length($search)) {
+        push @where, 'LOWER(p.canonical_name) LIKE ?';
+        push @bind, '%' . lc($search) . '%';
+    }
+
+    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+
+    my $people = $c->db->selectall_arrayref(
+        qq{SELECT p.*,
+            COUNT(DISTINCT pr.id)        AS role_count,
+            COUNT(DISTINCT pr.target_id) AS target_count
+           FROM people p
+           LEFT JOIN person_roles pr ON pr.person_id = p.id
+           $where_sql
+           GROUP BY p.id
+           ORDER BY p.canonical_name ASC},
+        { Slice => {} }, @bind,
+    );
+
+    my $csv = "id,canonical_name,nationality,bio_summary,role_count,target_count,created_at\n";
+    for my $p (@$people) {
+        my $name = ($p->{canonical_name} // '');
+        $name =~ s/"/""/g;
+        my $bio = ($p->{bio_summary} // '');
+        $bio =~ s/"/""/g;
+        $csv .= sprintf('"%s","%s","%s","%s",%s,%s,"%s"' . "\n",
+            $p->{id}, $name, ($p->{nationality} // ''),
+            $bio, $p->{role_count} // 0, $p->{target_count} // 0,
+            $p->{created_at} // '',
+        );
+    }
+
+    $c->res->headers->content_type('text/csv; charset=utf-8');
+    $c->res->headers->content_disposition('attachment; filename="people.csv"');
+    $c->render(text => $csv);
+}
+
 sub new_form ($c) {
     $c->render(template => 'people/new');
 }
@@ -231,6 +274,38 @@ sub delete ($c) {
     $c->db->do(q{DELETE FROM people WHERE id = ?}, undef, $id);
     $c->log_audit('delete', 'person', $id, { canonical_name => $person->{canonical_name} });
     $c->flash(success => 'Person deleted.');
+    $c->redirect_to('/people');
+}
+
+sub bulk_delete ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('write')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/people');
+    }
+
+    my @ids = $c->param('person_ids') ? @{$c->every_param('person_ids')} : ();
+
+    unless (@ids) {
+        $c->flash(error => 'No people selected.');
+        $c->redirect_to('/people');
+        return;
+    }
+
+    my $count = 0;
+    my $placeholders = join(', ', ('?') x @ids);
+    $c->db->do(
+        qq{DELETE FROM people WHERE id IN ($placeholders)},
+        undef, @ids,
+    );
+    $count = @ids;
+
+    $c->log_audit('bulk_delete_people', 'person', undef, { count => $count });
+    $c->flash(success => "$count people deleted.");
     $c->redirect_to('/people');
 }
 

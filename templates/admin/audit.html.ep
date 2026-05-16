@@ -10,6 +10,7 @@
 
 <div class="page-header">
   <h1>Audit Log</h1>
+  <a href="/admin/audit/export?action=<%= $f_action %>&entity_type=<%= $f_entity %>" class="btn btn-secondary btn-sm">Export CSV</a>
 </div>
 
 <form method="get" action="/admin/audit" class="filter-form">

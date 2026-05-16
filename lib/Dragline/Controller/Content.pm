@@ -75,6 +75,67 @@ sub index ($c) {
     $c->render(template => 'targets/content');
 }
 
+sub export_csv ($c) {
+    my $id = $c->param('id');
+
+    my $target = $c->db->selectrow_hashref(
+        q{SELECT * FROM targets WHERE id = ?}, undef, $id,
+    );
+    unless ($target) {
+        $c->reply->not_found;
+        return;
+    }
+
+    my @where = ('target_id = ?');
+    my @bind  = ($id);
+
+    my $source_type = $c->param('source_type') // '';
+    my $date_from   = $c->param('date_from')   // '';
+    my $date_to     = $c->param('date_to')     // '';
+    my $min_tier    = $c->param('min_tier')    // '';
+
+    if ($source_type && grep { $_ eq $source_type } qw(forge crawl_static bucket_js pdf upload)) {
+        push @where, 'source_type = ?';
+        push @bind, $source_type;
+    }
+    if ($date_from =~ /^\d{4}-\d{2}-\d{2}$/) {
+        push @where, "created_at >= ?";
+        push @bind, "$date_from 00:00:00";
+    }
+    if ($date_to =~ /^\d{4}-\d{2}-\d{2}$/) {
+        push @where, "created_at <= ?";
+        push @bind, "$date_to 23:59:59";
+    }
+    if ($min_tier =~ /^\d+$/ && $min_tier >= 1) {
+        push @where, "significance_tier >= ?";
+        push @bind, $min_tier;
+    }
+
+    my $where_sql = 'WHERE ' . join(' AND ', @where);
+
+    my $content = $c->db->selectall_arrayref(
+        qq{SELECT * FROM raw_content $where_sql ORDER BY created_at DESC},
+        { Slice => {} }, @bind,
+    );
+
+    my $csv = "id,source_type,source_title,source_url,word_count,significance_tier,language_code,created_at\n";
+    for my $r (@$content) {
+        my $title = ($r->{source_title} // '');
+        $title =~ s/"/""/g;
+        my $url = ($r->{source_url} // '');
+        $url =~ s/"/""/g;
+        $csv .= sprintf('"%s","%s","%s","%s",%s,%s,"%s","%s"' . "\n",
+            $r->{id}, $r->{source_type}, $title, $url,
+            $r->{word_count} // '', $r->{significance_tier} // '',
+            $r->{language_code} // '', $r->{created_at} // '',
+        );
+    }
+
+    $c->res->headers->content_type('text/csv; charset=utf-8');
+    $c->res->headers->content_disposition("attachment; filename=\"$target->{canonical_name}-content.csv\"");
+    $c->render(text => $csv);
+}
+
 sub queue_crawl ($c) {
     unless ($c->validate_csrf) {
         $c->render(text => 'Forbidden', status => 403);
@@ -395,6 +456,60 @@ sub reprocess ($c) {
     $c->redirect_to("/targets/$id/content");
 }
 
+sub bulk_action ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    unless ($c->rate_limit('expensive')) {
+        $c->flash(error => 'Too many requests. Please wait and try again.');
+        return $c->redirect_to('/targets/' . $c->param('id') . '/content');
+    }
+
+    my $id     = $c->param('id');
+    my $action = $c->param('bulk_action') // '';
+    my @content_ids = $c->param('content_ids') ? @{$c->every_param('content_ids')} : ();
+
+    unless (@content_ids) {
+        $c->flash(error => 'No content items selected.');
+        $c->redirect_to("/targets/$id/content");
+        return;
+    }
+
+    my $count = 0;
+    if ($action eq 'delete') {
+        for my $cid (@content_ids) {
+            $c->db->do(
+                q{DELETE FROM raw_content WHERE id = ? AND target_id = ?},
+                undef, $cid, $id,
+            );
+            $count++;
+        }
+        $c->log_audit('bulk_delete_content', 'raw_content', undef, { count => $count, target_id => $id });
+        $c->flash(success => "$count content items deleted.");
+    }
+    elsif ($action eq 'reprocess') {
+        for my $cid (@content_ids) {
+            my $exists = $c->db->selectrow_array(
+                q{SELECT 1 FROM raw_content WHERE id = ? AND target_id = ?},
+                undef, $cid, $id,
+            );
+            next unless $exists;
+            $c->db->do(q{DELETE FROM raw_content_embeddings WHERE raw_content_id = ?}, undef, $cid);
+            $c->minion->enqueue(embed => [{ raw_content_id => $cid }], { attempts => 3 });
+            $count++;
+        }
+        $c->log_audit('bulk_reprocess_content', 'raw_content', undef, { count => $count, target_id => $id });
+        $c->flash(success => "$count content items queued for reprocessing.");
+    }
+    else {
+        $c->flash(error => 'Unknown bulk action.');
+    }
+
+    $c->redirect_to("/targets/$id/content");
+}
+
 sub extract_intelligence ($c) {
     unless ($c->validate_csrf) {
         $c->render(text => 'Forbidden', status => 403);
@@ -499,6 +614,49 @@ sub delete_crawl_queue ($c) {
     my $queue_id = $c->param('queue_id');
     $c->db->do(q{DELETE FROM crawl_queue WHERE id = ?}, undef, $queue_id);
     $c->flash(success => 'Queue item deleted.');
+    $c->redirect_to('/admin/crawl-queue');
+}
+
+sub retry_all_failed ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $failed = $c->db->selectall_arrayref(
+        q{SELECT * FROM crawl_queue WHERE status = 'failed'},
+        { Slice => {} },
+    );
+
+    my $count = 0;
+    for my $item (@$failed) {
+        $c->db->do(
+            q{UPDATE crawl_queue SET status = 'pending', attempts = 0, last_error = NULL WHERE id = ?},
+            undef, $item->{id},
+        );
+        $c->minion->enqueue(crawl_static => [{
+            target_id      => $item->{target_id},
+            url            => $item->{url},
+            crawl_queue_id => $item->{id},
+        }], { attempts => 3 });
+        $count++;
+    }
+
+    $c->flash(success => "$count failed crawls requeued.");
+    $c->redirect_to('/admin/crawl-queue');
+}
+
+sub delete_completed_crawls ($c) {
+    unless ($c->validate_csrf) {
+        $c->render(text => 'Forbidden', status => 403);
+        return;
+    }
+
+    my $n = $c->db->do(
+        q{DELETE FROM crawl_queue WHERE status IN ('complete', 'skipped')},
+    );
+
+    $c->flash(success => ($n // 0) . ' completed/skipped crawl items deleted.');
     $c->redirect_to('/admin/crawl-queue');
 }
 

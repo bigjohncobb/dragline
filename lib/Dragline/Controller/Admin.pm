@@ -110,6 +110,27 @@ sub costs ($c) {
     $c->render(template => 'admin/costs');
 }
 
+sub export_costs ($c) {
+    my $records = $c->db->selectall_arrayref(
+        q{SELECT * FROM cost_records ORDER BY created_at DESC LIMIT 10000},
+        { Slice => {} },
+    );
+
+    my $csv = "id,provider,operation,model,input_tokens,output_tokens,estimated_cost_usd,target_id,status,created_at\n";
+    for my $r (@$records) {
+        $csv .= sprintf('"%s","%s","%s","%s",%s,%s,%s,"%s","%s","%s"' . "\n",
+            $r->{id}, $r->{provider}, $r->{operation}, ($r->{model} // ''),
+            $r->{input_tokens} // '', $r->{output_tokens} // '',
+            $r->{estimated_cost_usd} // '', ($r->{target_id} // ''),
+            $r->{status}, $r->{created_at},
+        );
+    }
+
+    $c->res->headers->content_type('text/csv; charset=utf-8');
+    $c->res->headers->content_disposition('attachment; filename="costs.csv"');
+    $c->render(text => $csv);
+}
+
 sub audit_log ($c) {
     my $page   = $c->param('page') // 1;
     $page      = 1 unless $page =~ /^\d+$/ && $page > 0;
@@ -155,6 +176,48 @@ sub audit_log ($c) {
         filter_entity_type => $entity_type,
     );
     $c->render(template => 'admin/audit');
+}
+
+sub export_audit ($c) {
+    my $action      = $c->param('action')      // '';
+    my $entity_type = $c->param('entity_type') // '';
+
+    my @where;
+    my @bind;
+    if (length($action)) {
+        push @where, 'al.action = ?';
+        push @bind,  $action;
+    }
+    if (length($entity_type)) {
+        push @where, 'al.entity_type = ?';
+        push @bind,  $entity_type;
+    }
+
+    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+
+    my $entries = $c->db->selectall_arrayref(
+        qq{SELECT al.*, u.username
+           FROM audit_log al
+           LEFT JOIN users u ON u.id = al.user_id
+           $where_sql
+           ORDER BY al.created_at DESC},
+        { Slice => {} }, @bind,
+    );
+
+    my $csv = "id,user,action,entity_type,entity_id,ip_address,created_at\n";
+    for my $e (@$entries) {
+        my $action = ($e->{action} // '');
+        $action =~ s/"/""/g;
+        $csv .= sprintf('"%s","%s","%s","%s","%s","%s","%s"' . "\n",
+            $e->{id}, ($e->{username} // ''), $action,
+            ($e->{entity_type} // ''), ($e->{entity_id} // ''),
+            ($e->{ip_address} // ''), ($e->{created_at} // ''),
+        );
+    }
+
+    $c->res->headers->content_type('text/csv; charset=utf-8');
+    $c->res->headers->content_disposition('attachment; filename="audit-log.csv"');
+    $c->render(text => $csv);
 }
 
 sub users ($c) {
@@ -393,26 +456,29 @@ sub create_api_key ($c) {
     );
 
     $c->log_audit('create_api_key', 'api_key', $id, { name => $name, role => $role });
-    $c->flash(new_api_key => $raw_key);
-    $c->redirect_to('/admin/api-keys');
+    $c->session(new_api_key_value => $raw_key, new_api_key_name => $name);
+    $c->redirect_to('/admin/api-keys/new-key');
 }
 
-sub delete_api_key ($c) {
-    unless ($c->validate_csrf) {
-        $c->render(text => 'Forbidden', status => 403);
-        return;
-    }
+sub show_new_api_key ($c) {
+    my $key_value = $c->session('new_api_key_value');
+    my $key_name  = $c->session('new_api_key_name') // '';
 
-    unless ($c->rate_limit('write')) {
-        $c->flash(error => 'Too many requests. Please wait and try again.');
+    unless ($key_value) {
+        $c->flash(error => 'No API key to display. The key may have already been shown.');
         $c->redirect_to('/admin/api-keys');
         return;
     }
 
-    my $id = $c->param('id');
-    $c->db->do(q{UPDATE api_keys SET active = 0 WHERE id = ?}, undef, $id);
-    $c->log_audit('delete_api_key', 'api_key', $id);
-    $c->flash(success => 'API key revoked.');
+    $c->stash(
+        api_key_value => $key_value,
+        api_key_name  => $key_name,
+    );
+    $c->render(template => 'admin/api_key_show');
+}
+
+sub dismiss_new_api_key ($c) {
+    $c->session(new_api_key_value => undef, new_api_key_name => undef);
     $c->redirect_to('/admin/api-keys');
 }
 
@@ -449,8 +515,8 @@ sub rotate_api_key ($c) {
     );
 
     $c->log_audit('rotate_api_key', 'api_key', $id);
-    $c->flash(new_api_key => $raw_key);
-    $c->redirect_to('/admin/api-keys');
+    $c->session(new_api_key_value => $raw_key, new_api_key_name => 'Rotated: ' . $existing->{name});
+    $c->redirect_to('/admin/api-keys/new-key');
 }
 
 sub domain_blocklist ($c) {

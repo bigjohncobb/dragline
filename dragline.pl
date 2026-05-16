@@ -393,6 +393,10 @@ sub startup ($self) {
     $r->get('/login')->to('Auth#login_form');
     $r->post('/login')->to('Auth#login');
     $r->get('/logout')->to('Auth#logout');
+    $r->get('/forgot-password')->to('Auth#forgot_password_form');
+    $r->post('/forgot-password')->to('Auth#forgot_password');
+    $r->get('/reset-password')->to('Auth#reset_password_form');
+    $r->post('/reset-password')->to('Auth#reset_password');
 
     # Password change (any logged-in user)
     my $password_change = $r->under('/change-password')->to(cb => sub ($c) { $c->require_login });
@@ -435,8 +439,10 @@ sub startup ($self) {
     $auth->post('/targets/:id/peers/:rel_id/delete')->to('Targets#delete_peer');
     $auth->get('/targets/:id/monitoring')->to('Targets#monitoring_form');
     $auth->post('/targets/:id/monitoring')->to('Targets#update_monitoring');
+    $auth->post('/targets/:id/monitoring/run-now')->to('Targets#run_monitoring_job');
 
     $auth->get('/targets/:id/content')->to('Content#index');
+    $auth->get('/targets/:id/content/export')->to('Content#export_csv');
     $auth->post('/targets/:id/content/crawl')->to('Content#queue_crawl');
     $auth->post('/targets/:id/content/upload')->to('Content#upload');
     $auth->post('/targets/:id/content/discover')->to('Content#queue_discover');
@@ -445,6 +451,7 @@ sub startup ($self) {
     $auth->get('/targets/:id/content/:content_id/edit')->to('Content#edit_form');
     $auth->post('/targets/:id/content/:content_id')->to('Content#update');
     $auth->post('/targets/:id/content/:content_id/delete')->to('Content#delete');
+    $auth->post('/targets/:id/content/bulk')->to('Content#bulk_action');
     $auth->post('/targets/:id/content/:content_id/reprocess')->to('Content#reprocess');
     $auth->post('/targets/:id/content/:content_id/extract')->to('Content#extract_intelligence');
     $auth->get('/targets/:id/watched-sources')->to('Content#watched_sources');
@@ -453,8 +460,13 @@ sub startup ($self) {
 
     $auth->get('/targets/:id/dossier')->to('Dossiers#show');
     $auth->post('/targets/:id/dossier/generate')->to('Dossiers#generate');
+    $auth->post('/targets/:id/dossier/cancel')->to('Dossiers#cancel');
+    $auth->get('/targets/:id/dossier/export')->to('Dossiers#export_dossier');
+    $auth->get('/targets/:id/dossier/versions/:version_id')->to('Dossiers#show_version');
+    $auth->post('/targets/:id/dossier/versions/:version_id/restore')->to('Dossiers#restore_version');
 
     $auth->get('/people')->to('People#index');
+    $auth->get('/people/export')->to('People#export_csv');
     $auth->get('/people/new')->to('People#new_form');
     $auth->post('/people')->to('People#create');
     $auth->get('/search')->to('Search#semantic');
@@ -463,6 +475,7 @@ sub startup ($self) {
     $auth->get('/people/:id/edit')->to('People#edit_form');
     $auth->post('/people/:id')->to('People#update');
     $auth->post('/people/:id/delete')->to('People#delete');
+    $auth->post('/people/bulk-delete')->to('People#bulk_delete');
     $auth->post('/people/:id/merge')->to('People#merge');
     $auth->post('/people/:id/roles')->to('People#add_role');
     $auth->post('/people/:id/roles/:role_id/delete')->to('People#delete_role');
@@ -473,14 +486,20 @@ sub startup ($self) {
     $auth->post('/bookmarks')->to('Bookmarks#create');
     $auth->post('/bookmarks/:id/delete')->to('Bookmarks#delete');
     $auth->post('/bookmarks/collections')->to('Bookmarks#create_collection');
+    $auth->get('/bookmarks/collections/:coll_id')->to('Bookmarks#show_collection');
     $auth->post('/bookmarks/collections/:coll_id/items')->to('Bookmarks#add_to_collection');
+    $auth->post('/bookmarks/collections/:coll_id/items/:bookmark_id/remove')->to('Bookmarks#remove_from_collection');
+    $auth->post('/bookmarks/collections/:coll_id/rename')->to('Bookmarks#rename_collection');
+    $auth->post('/bookmarks/collections/:coll_id/delete')->to('Bookmarks#delete_collection');
     $auth->get('/saved-queries')->to('Bookmarks#saved_queries');
     $auth->post('/saved-queries')->to('Bookmarks#save_query');
     $auth->post('/saved-queries/:id/delete')->to('Bookmarks#delete_query');
 
     $auth->get('/notifications')->to('Notifications#index');
     $auth->post('/notifications/:id/read')->to('Notifications#mark_read');
+    $auth->post('/notifications/:id/dismiss')->to('Notifications#dismiss');
     $auth->post('/notifications/read-all')->to('Notifications#mark_all_read');
+    $auth->post('/notifications/bulk')->to('Notifications#bulk_action');
     $auth->get('/notifications/preferences')->to('Notifications#preferences_form');
     $auth->post('/notifications/preferences')->to('Notifications#update_preferences');
 
@@ -519,7 +538,9 @@ sub startup ($self) {
     $admin->get('/settings')->to('Admin#settings_form');
     $admin->post('/settings')->to('Admin#update_settings');
     $admin->get('/costs')->to('Admin#costs');
+    $admin->get('/costs/export')->to('Admin#export_costs');
     $admin->get('/audit')->to('Admin#audit_log');
+    $admin->get('/audit/export')->to('Admin#export_audit');
     $admin->get('/users')->to('Admin#users');
     $admin->post('/users')->to('Admin#create_user');
     $admin->get('/users/:id/edit')->to('Admin#edit_user_form');
@@ -527,6 +548,8 @@ sub startup ($self) {
     $admin->post('/users/:id/delete')->to('Admin#delete_user');
     $admin->get('/api-keys')->to('Admin#api_keys');
     $admin->post('/api-keys')->to('Admin#create_api_key');
+    $admin->get('/api-keys/new-key')->to('Admin#show_new_api_key');
+    $admin->post('/api-keys/new-key/dismiss')->to('Admin#dismiss_new_api_key');
     $admin->post('/api-keys/:id/delete')->to('Admin#delete_api_key');
     $admin->post('/api-keys/:id/rotate')->to('Admin#rotate_api_key');
 
@@ -540,6 +563,8 @@ sub startup ($self) {
     $admin->get('/crawl-queue')->to('Content#crawl_queue');
     $admin->post('/crawl-queue/:queue_id/retry')->to('Content#retry_crawl');
     $admin->post('/crawl-queue/:queue_id/delete')->to('Content#delete_crawl_queue');
+    $admin->post('/crawl-queue/retry-all-failed')->to('Content#retry_all_failed');
+    $admin->post('/crawl-queue/delete-completed')->to('Content#delete_completed_crawls');
 
     $self->plugin('Minion::Admin', { route => $admin->any('/jobs') });
 

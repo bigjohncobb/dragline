@@ -21,5 +21,8 @@
       </div>
       <button type="submit" class="btn btn-primary btn-block">Sign in</button>
     </form>
+    <p class="login-footer-link">
+      <a href="/forgot-password">Forgot password?</a>
+    </p>
   </div>
 </div>

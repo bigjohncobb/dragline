@@ -13,7 +13,7 @@
 
   <table class="data-table monitoring-table">
     <thead>
-      <tr><th>Source</th><th>Cadence</th><th>Last run</th><th>Next scheduled</th></tr>
+      <tr><th>Source</th><th>Cadence</th><th>Last run</th><th>Next scheduled</th><th></th></tr>
     </thead>
     <tbody>
       <tr>
@@ -27,6 +27,13 @@
         </td>
         <td><%= $mon->{last_forge_sync_at} ? substr($mon->{last_forge_sync_at}, 0, 16) : '—' %></td>
         <td><%= $mon->{next_forge_sync_at} ? substr($mon->{next_forge_sync_at}, 0, 16) : '—' %></td>
+        <td>
+          <form method="post" action="/targets/<%= $t->{id} %>/monitoring/run-now" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <input type="hidden" name="job_type" value="forge_sync">
+            <button type="submit" class="btn btn-xs btn-secondary">Run now</button>
+          </form>
+        </td>
       </tr>
       <tr>
         <td>Crawl</td>
@@ -39,6 +46,13 @@
         </td>
         <td><%= $mon->{last_crawl_at} ? substr($mon->{last_crawl_at}, 0, 16) : '—' %></td>
         <td><%= $mon->{next_crawl_at} ? substr($mon->{next_crawl_at}, 0, 16) : '—' %></td>
+        <td>
+          <form method="post" action="/targets/<%= $t->{id} %>/monitoring/run-now" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <input type="hidden" name="job_type" value="crawl">
+            <button type="submit" class="btn btn-xs btn-secondary">Run now</button>
+          </form>
+        </td>
       </tr>
       <tr>
         <td>Discover</td>
@@ -51,6 +65,13 @@
         </td>
         <td><%= $mon->{last_discover_at} ? substr($mon->{last_discover_at}, 0, 16) : '—' %></td>
         <td><%= $mon->{next_discover_at} ? substr($mon->{next_discover_at}, 0, 16) : '—' %></td>
+        <td>
+          <form method="post" action="/targets/<%= $t->{id} %>/monitoring/run-now" class="inline-form">
+            <input type="hidden" name="_csrf_token" value="<%= csrf_token %>">
+            <input type="hidden" name="job_type" value="discover">
+            <button type="submit" class="btn btn-xs btn-secondary">Run now</button>
+          </form>
+        </td>
       </tr>
     </tbody>
   </table>
