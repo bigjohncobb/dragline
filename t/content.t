@@ -6,6 +6,7 @@ use Test::More;
 use Test::Mojo;
 use FindBin;
 require "$FindBin::Bin/helper.pl";
+use Digest::SHA qw(sha256_hex);
 
 my $t = admin_ua();
 
@@ -133,6 +134,34 @@ subtest 'Crawl same URL twice flashes already queued' => sub {
     # Follow redirect to see flash
     $t->get_ok($t->tx->res->headers->location)->status_is(200);
     like($t->tx->res->body, qr/already queued/i, 'Duplicate queue flash shown');
+};
+
+subtest 'Edit content recalculates content_hash' => sub {
+    my $orig_text = 'Original content text for hash test.';
+    my $orig_hash = sha256_hex($orig_text);
+    my $rc_id     = 'rc-edit-hash-test';
+
+    db()->do(
+        q{INSERT INTO raw_content (id, target_id, source_type, content_text, content_hash, word_count, created_at)
+          VALUES (?, ?, 'upload', ?, ?, 5, datetime('now'))},
+        undef, $rc_id, $target_id, $orig_text, $orig_hash,
+    );
+
+    $t->get_ok("/targets/$target_id/content/$rc_id/edit")->status_is(200);
+    my $csrf = extract_csrf($t);
+
+    my $new_text = 'Updated content text for hash test.';
+    $t->post_ok("/targets/$target_id/content/$rc_id" => form => {
+        content_text => $new_text,
+        _csrf_token  => $csrf,
+    })->status_is(302);
+
+    my $row = db()->selectrow_hashref(
+        q{SELECT content_text, content_hash FROM raw_content WHERE id = ?},
+        undef, $rc_id,
+    );
+    is($row->{content_text}, $new_text, 'content_text updated');
+    is($row->{content_hash}, sha256_hex($new_text), 'content_hash recalculated');
 };
 
 subtest 'Extract intelligence queues doc_intelligence job' => sub {

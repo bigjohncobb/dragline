@@ -61,6 +61,13 @@ sub run {
         die "Embed: unexpected dimension count $dims (expected $expected_dims) for model $model";
     }
 
+    my $prev_dims = $dbh->selectrow_array(
+        q{SELECT dimensions FROM raw_content_embeddings LIMIT 1},
+    );
+    if (defined $prev_dims && $prev_dims != $dims) {
+        $log->warn("Embed: dimension mismatch — existing embeddings are $prev_dims-dim but current configuration ($model) produces $dims-dim embeddings. Semantic search results may be incomplete until all content is re-embedded with the new model. To fix: revert the DRAGLINE_AIRGAP setting or reprocess all content.");
+    }
+
     my $blob  = pack('f*', @$embedding);
     my $id    = $_uuid->create_str;
 

@@ -907,6 +907,7 @@ CREATE TABLE IF NOT EXISTS rate_limit_windows (
 -- ============================================================
 
 ALTER TABLE backup_logs        ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
+ALTER TABLE raw_content         ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
 ALTER TABLE webhook_configs    ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
 ALTER TABLE webhook_deliveries ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));
 ALTER TABLE user_notifications ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'));

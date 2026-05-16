@@ -50,9 +50,12 @@ sub semantic ($c) {
     }
 
     my $blob = pack('f*', @$embedding);
+    my $dims = scalar @$embedding;
 
     my @where;
-    my @bind = ($blob);
+    my @bind = ($blob, $dims);
+
+    push @where, 'rce.dimensions = ?';
 
     if ($target_id) {
         push @where, 'rc.target_id = ?';
